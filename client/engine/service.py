@@ -16,6 +16,7 @@ from .tts import QwenEngine, LANGUAGES, select_backend
 from .voices import VoiceLibrary
 from .denoise import reduce_noise, REVISION as AUDIO_REVISION
 from .numbers import REVISION as TEXT_REVISION
+from .stress import REVISION as STRESS_REVISION, AUTO_REVISION
 
 
 class Studio:
@@ -107,7 +108,7 @@ class Studio:
         for index, chapter in chapters:
             if chapter.language not in LANGUAGES:
                 raise ValueError(f'Выберите поддерживаемый язык для главы «{chapter.title}»')
-            text = prepare_text(spoken_blocks(book,chapter.start,chapter.end), language=chapter.language, **options)
+            text = prepare_text(spoken_blocks(book,chapter.start,chapter.end), language=chapter.language, **{**options, 'auto_stress': False})
             parts = chunk_text(text)
             if preview:
                 parts = parts[:1]
@@ -119,7 +120,7 @@ class Studio:
                 break
         spec = {**self.settings,'project_id':identifier,'title':book.title,'author':book.author,
                 'cover_id':book.cover_id,'denoise':denoise,'audio_revision':AUDIO_REVISION if denoise else 'raw',
-                'text_revision':TEXT_REVISION,'preview':preview,'chapter_index':chapter_index,
+                'text_revision':TEXT_REVISION,'stress_revision':STRESS_REVISION,'auto_stress_revision':AUTO_REVISION if options.get('auto_stress') else None,'auto_stress':bool(options.get('auto_stress')),'preview':preview,'chapter_index':chapter_index,
                 'voice_id':voice_id,'voice_hash':voice['sha256'],'transcript':voice['transcript'],
                 'language':chapters[0][1].language,'chapters':slices}
         return self.queue.enqueue(texts,spec)
@@ -146,6 +147,9 @@ class Studio:
             if not self.queue.audio_duration(cleaned):
                 reduce_noise(reference, cleaned)
             reference = cleaned
+        if spec.get('auto_stress', False):
+            from .stress import automatic_stress
+            text = automatic_stress(text, spec['language'])
         self.engine.synthesize(text,spec['language'],reference,spec['transcript'],output)
         if spec.get('denoise', False):
             reduce_noise(output, output)

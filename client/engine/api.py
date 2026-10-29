@@ -25,6 +25,7 @@ class Prepare(BaseModel):
     chapter: int = Field(ge=0)
     remove_notes: bool = False
     numbers: bool = True
+    auto_stress: bool = False
     dictionary: dict[str, str] = Field(default_factory=dict)
     remove_page_furniture: bool = False
 
@@ -43,6 +44,7 @@ class Render(BaseModel):
     chapter: int | None = Field(default=None,ge=0)
     remove_notes: bool = False
     numbers: bool = True
+    auto_stress: bool = False
     dictionary: dict[str,str] = Field(default_factory=dict)
     remove_page_furniture: bool = False
 
@@ -329,7 +331,7 @@ def create_app(directory: Path, token: str, ui_directory: Path | None = None):
         chapter = book.chapters[body.chapter]
         book.preparation=body.model_dump(exclude={'chapter'})
         library.save(book,identifier)
-        text = prepare_text(spoken_blocks(book,chapter.start,chapter.end), remove_notes=body.remove_notes, numbers=body.numbers, dictionary=body.dictionary, remove_page_furniture=body.remove_page_furniture,language=chapter.language)
+        text = prepare_text(spoken_blocks(book,chapter.start,chapter.end), remove_notes=body.remove_notes, numbers=body.numbers, auto_stress=body.auto_stress, dictionary=body.dictionary, remove_page_furniture=body.remove_page_furniture,language=chapter.language)
         return {"text": text, "chunks": chunk_text(text)}
 
     if ui_directory is not None:

@@ -54,6 +54,8 @@ class QwenEngine:
 
     def synthesize(self, text, language, reference: Path, transcript, output: Path):
         import soundfile as sf
+        from .stress import speech_stress
+        text = speech_stress(text, language)
         if language not in LANGUAGES:
             raise ValueError("Модель не поддерживает этот язык")
         prompt = self.prepare_voice(reference, transcript)

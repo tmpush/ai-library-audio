@@ -129,3 +129,5 @@ uvicorn==0.54.0
 websockets==17.3
 yarl==1.25.1
 zipp==4.1.2
+
+ruaccent-predictor==1.2.0

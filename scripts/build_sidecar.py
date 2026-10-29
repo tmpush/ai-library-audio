@@ -23,11 +23,11 @@ command=[sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onedir' if
     '--workpath',str(root/'build/pyinstaller'),'--specpath',str(root/'build')]
 if args.with_tts:
     packages=['qwen_tts','torch','torchaudio','transformers','accelerate','tokenizers',
-              'huggingface_hub','soundfile','librosa','onnxruntime','einops','sox','faster_qwen3_tts']
+              'huggingface_hub','soundfile','librosa','onnxruntime','einops','sox','faster_qwen3_tts','ruaccent']
     missing=[package for package in packages if importlib.util.find_spec(package) is None]
     if missing:raise SystemExit('Install approved TTS dependencies into this build environment first: '+', '.join(missing))
     for package in packages:command+=['--collect-all',package]
-    for distribution in ['qwen-tts','faster-qwen3-tts']:
+    for distribution in ['qwen-tts','faster-qwen3-tts','ruaccent-predictor']:
         command+=['--copy-metadata',distribution]
 if args.ffmpeg_dir:
     folder=args.ffmpeg_dir.expanduser().resolve()

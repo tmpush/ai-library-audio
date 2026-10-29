@@ -230,7 +230,7 @@ def import_book(path: str | Path) -> Book:
     return Book(title or path.stem, author, hashlib.sha256(path.read_bytes()).hexdigest(), blocks, detect_chapters(blocks), warnings)
 
 
-def prepare_text(blocks: list[Block], *, remove_notes=False, numbers=False, dictionary=None, remove_page_furniture=False, language='ru') -> str:
+def prepare_text(blocks: list[Block], *, remove_notes=False, numbers=False, dictionary=None, remove_page_furniture=False, language='ru', auto_stress=False) -> str:
     lines = [clean_space(b.text) for b in blocks if not (remove_notes and b.kind == "note") and not (remove_page_furniture and b.kind in {'header','page_number'})]
     text = "\n\n".join(lines)
     if numbers:
@@ -238,6 +238,9 @@ def prepare_text(blocks: list[Block], *, remove_notes=False, numbers=False, dict
     for source, target in sorted((dictionary or {}).items(), key=lambda pair: -len(pair[0])):
         if source:
             text = re.sub(r"(?<!\w)" + re.escape(source) + r"(?!\w)", lambda _: target, text)
+    if auto_stress:
+        from .stress import automatic_stress
+        text = automatic_stress(text, language)
     return text
 
 

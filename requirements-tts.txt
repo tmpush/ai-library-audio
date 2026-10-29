@@ -3,3 +3,6 @@
 qwen-tts==0.1.1
 torch>=2.6,<3
 torchaudio>=2.6,<3
+
+# Local Russian accentuation, including model weights (28 MB download).
+ruaccent-predictor==1.2.0

@@ -181,6 +181,7 @@ pub struct StudioApp {
     search: String,
     voice: String,
     numbers: bool,
+    auto_stress: bool,
     remove_notes: bool,
     remove_furniture: bool,
     dictionary: String,
@@ -268,6 +269,7 @@ impl StudioApp {
             search: String::new(),
             voice: String::new(),
             numbers: true,
+            auto_stress: true,
             remove_notes: false,
             remove_furniture: false,
             dictionary: String::new(),
@@ -415,6 +417,7 @@ impl StudioApp {
             .collect();
         self.metadata_title = s(&book, "title").into();
         self.metadata_author = s(&book, "author").into();
+        self.auto_stress = book["preparation"]["auto_stress"].as_bool().unwrap_or(true);
         self.numbers = book["preparation"]["numbers"].as_bool().unwrap_or(true);
         self.remove_notes = book["preparation"]["remove_notes"]
             .as_bool()
@@ -675,7 +678,7 @@ impl StudioApp {
             dictionary.insert(a.trim(), b.trim());
         }
         Ok(
-            json!({"numbers":self.numbers,"remove_notes":self.remove_notes,"remove_page_furniture":self.remove_furniture,"dictionary":dictionary}),
+            json!({"numbers":self.numbers,"auto_stress":self.auto_stress,"remove_notes":self.remove_notes,"remove_page_furniture":self.remove_furniture,"dictionary":dictionary}),
         )
     }
     fn render(&mut self, preview: bool, chapter_only: bool) {
@@ -1218,6 +1221,16 @@ impl StudioApp {
                             self.persist();
                         }
                         ui.checkbox(&mut self.numbers, "Читать числа словами");
+                        ui.checkbox(&mut self.auto_stress, "Расставлять ударения");
+                        if ui
+                            .add_enabled(
+                                self.dirty.is_empty(),
+                                egui::Button::new("Показать текст с ударениями"),
+                            )
+                            .clicked()
+                        {
+                            self.prepare();
+                        }
                         hint(ui, p, "Короткий фрагмент выбранной главы.");
                         let enabled =
                             !self.voice.is_empty() && self.dirty.is_empty() && !self.preview_wait;
@@ -1289,11 +1302,11 @@ impl StudioApp {
                             &mut self.remove_furniture,
                             "Убирать номера страниц и колонтитулы",
                         );
-                        ui.label("Словарь произношения");
+                        ui.label("Ударения для всей книги");
                         ui.add(
                             egui::TextEdit::multiline(&mut self.dictionary)
                                 .desired_rows(3)
-                                .hint_text("слово=произношение")
+                                .hint_text("смотритель=смотри́тель")
                                 .desired_width(f32::INFINITY),
                         );
                         if ui.button("Проверить подготовленный текст").clicked()
@@ -1336,7 +1349,7 @@ impl StudioApp {
                         );
                     }
                 });
-            ui.toggle_value(&mut self.edit, "Править текст");
+            ui.toggle_value(&mut self.edit, "Текст и ударения");
         });
         if !self.dirty.is_empty() {
             ui.horizontal(|ui| {
@@ -1377,6 +1390,14 @@ impl StudioApp {
             hint(ui, p, format!("ГЛАВА {}", self.chapter + 1));
             title(ui, s(&chapters[self.chapter], "title"), 26.0);
             ui.add_space(16.0);
+            if self.edit {
+                hint(
+                    ui,
+                    p,
+                    "Поставьте курсор после гласной и нажмите «Ударение». Или введите смотр+итель.",
+                );
+                ui.add_space(12.0);
+            }
             let start = chapters[self.chapter]["start"].as_u64().unwrap_or(0) as usize;
             let end = (chapters[self.chapter]["end"].as_u64().unwrap_or(0) as usize)
                 .min(self.blocks.len());
@@ -1394,15 +1415,38 @@ impl StudioApp {
                         ui.push_id(i, |ui| {
                             if self.edit {
                                 hint(ui, p, format!("Абзац {}", i + 1));
-                                if ui
-                                    .add(
-                                        egui::TextEdit::multiline(&mut self.blocks[i])
-                                            .font(serif(18.0))
-                                            .desired_width(f32::INFINITY),
-                                    )
-                                    .changed()
-                                {
+
+                                let output = egui::TextEdit::multiline(&mut self.blocks[i])
+                                    .font(serif(18.0))
+                                    .desired_width(f32::INFINITY)
+                                    .show(ui);
+                                if output.response.changed() {
                                     self.dirty.insert(i);
+                                }
+                                if ui.button("Ударение").clicked() {
+                                    if let Some(range) = output.state.cursor.char_range() {
+                                        let at = range.primary.index;
+                                        let chars: Vec<char> = self.blocks[i].chars().collect();
+                                        if at > 0
+                                            && at <= chars.len()
+                                            && "аеёиоуыэюяАЕЁИОУЫЭЮЯ".contains(chars[at - 1])
+                                        {
+                                            let byte = self.blocks[i]
+                                                .char_indices()
+                                                .nth(at)
+                                                .map(|(i, _)| i)
+                                                .unwrap_or(self.blocks[i].len());
+                                            if chars.get(at) != Some(&'\u{301}') {
+                                                self.blocks[i].insert(byte, '\u{301}');
+                                                self.dirty.insert(i);
+                                            }
+                                        } else {
+                                            self.notice = Some((
+                                                "Поставьте курсор сразу после гласной".into(),
+                                                true,
+                                            ));
+                                        }
+                                    }
                                 }
                                 if self.book["spoken_overrides"][i.to_string()].is_string()
                                     && ui.small_button("Вернуть оригинал").clicked()
