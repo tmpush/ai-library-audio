@@ -235,9 +235,11 @@ def prepare_text(blocks: list[Block], *, remove_notes=False, numbers=False, dict
     text = "\n\n".join(lines)
     if numbers:
         text = normalize_numbers(text, language)
-    for source, target in sorted((dictionary or {}).items(), key=lambda pair: -len(pair[0])):
-        if source:
-            text = re.sub(r"(?<!\w)" + re.escape(source) + r"(?!\w)", lambda _: target, text)
+    rules = {k:v for k,v in (dictionary or {}).items() if k}
+    if rules:
+        # One pass: replacement text must not trigger another pronunciation rule.
+        pattern = r"(?<!\w)(?:" + "|".join(re.escape(k) for k in sorted(rules,key=len,reverse=True)) + r")(?!\w)"
+        text = re.sub(pattern, lambda match: rules[match.group()], text)
     if auto_stress:
         from .stress import automatic_stress
         text = automatic_stress(text, language)

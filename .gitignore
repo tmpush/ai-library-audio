@@ -29,3 +29,4 @@ artifacts/
 owner-access*
 *private-key*
 
+.venv-chatterbox/

@@ -91,6 +91,11 @@ enum Done {
     Catalog,
     Download,
     Hardware,
+    Repair,
+    AppliedTake,
+    Rules,
+    RulesSaved,
+    RepairText,
 }
 enum Event {
     Ready(Result<(Api, Engine), String>),
@@ -191,6 +196,10 @@ pub struct StudioApp {
     metadata_title: String,
     metadata_author: String,
     prepared: Option<String>,
+    repair: Option<Value>,
+    repair_position: usize,
+    repair_text: String,
+    rules: Option<String>,
     delete_confirm: bool,
     split_title: String,
     split_at: usize,
@@ -269,7 +278,7 @@ impl StudioApp {
             search: String::new(),
             voice: String::new(),
             numbers: true,
-            auto_stress: true,
+            auto_stress: false,
             remove_notes: false,
             remove_furniture: false,
             dictionary: String::new(),
@@ -279,6 +288,10 @@ impl StudioApp {
             metadata_title: String::new(),
             metadata_author: String::new(),
             prepared: None,
+            repair: None,
+            repair_position: 0,
+            repair_text: String::new(),
+            rules: None,
             delete_confirm: false,
             split_title: "Новая глава".into(),
             split_at: 1,
@@ -417,7 +430,7 @@ impl StudioApp {
             .collect();
         self.metadata_title = s(&book, "title").into();
         self.metadata_author = s(&book, "author").into();
-        self.auto_stress = book["preparation"]["auto_stress"].as_bool().unwrap_or(true);
+        self.auto_stress = false;
         self.numbers = book["preparation"]["numbers"].as_bool().unwrap_or(true);
         self.remove_notes = book["preparation"]["remove_notes"]
             .as_bool()
@@ -563,6 +576,22 @@ impl StudioApp {
                                     self.notice=Some(("Голос сохранён и выбран для озвучки. Откройте книгу в студии".into(),false));
                                 }
                                 Done::Prepared => self.prepared = Some(s(&v, "text").into()),
+                                Done::Repair | Done::AppliedTake => {
+                                    if matches!(done, Done::AppliedTake) {
+                                        self.player = None;
+                                        self.notice = Some(("Фрагмент заменён. Сохраните новый MP3, чтобы услышать правку в файле".into(), false));
+                                    }
+                                    if self.repair.is_none() || self.repair.as_ref().map(|r| s(r,"id")) != Some(s(&v,"id")) {
+                                        self.repair_position = 0;
+                                        self.repair_text = s(&v["chunks"][0],"text").into();
+                                    }
+                                    self.repair = Some(v);
+                                }
+                                Done::Rules => {
+                                    self.rules = Some(v.as_object().map(|o| o.iter().map(|(k,v)| format!("{k}={}",v.as_str().unwrap_or(""))).collect::<Vec<_>>().join("\n")).unwrap_or_default());
+                                }
+                                Done::RulesSaved => self.notice = Some(("Правила сохранены для следующих озвучек. Готовый звук не изменился".into(),false)),
+                                Done::RepairText => self.repair_text = s(&v,"text").into(),
                                 Done::Play(label) => {
                                     let paths = list(&v["files"])
                                         .iter()
@@ -786,6 +815,122 @@ impl StudioApp {
             })
             .collect()
     }
+    fn pronunciation_windows(&mut self, ctx: &egui::Context) {
+        if let Some(data) = self.repair.clone() {
+            let mut open = true;
+            egui::Window::new("Исправить произношение").open(&mut open).default_width(760.0).show(ctx, |ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
+                ui.label("Выберите фрагмент, сравните дубли и оставьте лучший.");
+                hint(ui,self.palette,"Используется голос и модель этой записи. Остальная книга останется без изменений.");
+                if let Some(job)=list(&self.snapshot["jobs"]).iter().find(|j| s(j,"id")==s(&data,"id")) {
+                    ui.label(format!("Голос записи: {}",self.job_voice(job)));
+                }
+                let chunks=list(&data["chunks"]);
+                let before=self.repair_position;
+                egui::ComboBox::from_id_salt("repair_chunk").width(690.0).selected_text(format!("Фрагмент {} из {}",before+1,chunks.len())).show_ui(ui,|ui| {
+                    for (i,c) in chunks.iter().enumerate() {
+                        ui.selectable_value(&mut self.repair_position,i,format!("{} · {}",i+1,s(c,"text").chars().take(72).collect::<String>()));
+                    }
+                });
+                if before!=self.repair_position {self.repair_text=s(&chunks[self.repair_position],"text").into();}
+                let position=self.repair_position;
+                if let Some(chunk)=chunks.get(position) {
+                    ui.add_enabled_ui(self.busy.is_empty(),|ui| {
+                        if ui.button("Слушать текущий фрагмент").clicked() {
+                            let route=format!("/jobs/{}/playback",s(&data,"id"));
+                            self.task("Открываю звук…",Done::Play(format!("Фрагмент {}",position+1)),move |api| {
+                                let v=api.get(&route)?;Ok(json!({"files":[v["files"][position]]}))
+                            });
+                        }
+                        ui.label("Текст для новых дублей");
+                        ui.add(egui::TextEdit::multiline(&mut self.repair_text).desired_rows(4).desired_width(f32::INFINITY));
+                        if ui.button("Убрать знаки ударения из текста дублей").clicked() {
+                            let mut chars=self.repair_text.chars().peekable();let mut plain=String::new();
+                            while let Some(ch)=chars.next() {
+                                if ch=='\u{301}' || ch=='\u{2ca}' {continue;}
+                                if ch=='+' && chars.peek().is_some_and(|c| "аеёиоуыэюяАЕЁИОУЫЭЮЯ".contains(*c)) {continue;}
+                                plain.push(ch);
+                            }
+                            self.repair_text=plain;
+                        }
+                        hint(ui,self.palette,"Сначала попробуйте тот же текст. Правки здесь влияют только на этот фрагмент озвучки, исходная книга сохранится.");
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.button("Создать 3 дубля").clicked() {
+                                self.post(format!("/jobs/{}/takes",s(&data,"id")),json!({"position":position,"text":self.repair_text,"count":3}),"Добавляю дубли…",Done::Repair);
+                            }
+                            if ui.button("Обновить дубли").clicked() {
+                                let route=format!("/jobs/{}/repair",s(&data,"id"));
+                                self.task("Обновляю…",Done::Repair,move |api| api.get(&route));
+                            }
+                            if ui.button("Словарь фраз…").clicked() {self.task("Открываю словарь…",Done::Rules,|api| api.get("/pronunciation"));}
+                            if ui.button("Применить словарь к тексту").clicked() {
+                                self.post("/pronunciation/preview".into(),json!({"text":self.repair_text}),"Применяю правила…",Done::RepairText);
+                            }
+                        });
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical().id_salt("takes_scroll").max_height(280.0).show(ui,|ui| {
+                        for (n,take) in list(&data["takes"]).iter().filter(|t| t["position"].as_u64()==Some(position as u64)).enumerate() {
+                            ui.push_id(s(take,"id"),|ui| {
+                                let live=list(&self.snapshot["jobs"]).into_iter().find(|j| s(j,"id")==s(take,"id")).unwrap_or(take.clone());
+                                let label=if take["original"]==true {"Исходный звук".to_owned()} else {format!("Дубль {n}")};
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(format!("{label} · {}",status(&live))).on_hover_text(s(take,"text"));
+                                    let selected=take["cache_key"]==chunk["cache_key"];
+                                    if selected {ui.label("Выбран");}
+                                    ui.add_enabled_ui(self.busy.is_empty() && s(&live,"status")=="done",|ui| {
+                                        if ui.button("Слушать").clicked() {
+                                            let route=format!("/jobs/{}/playback",s(take,"id"));
+                                            self.task("Открываю дубль…",Done::Play(label.clone()),move |api| api.get(&route));
+                                        }
+                                        if !selected && ui.button("Заменить фрагмент").clicked() {
+                                            self.post(format!("/jobs/{}/choose-take",s(&data,"id")),json!({"position":position,"take":take["id"],"expected_key":chunk["cache_key"]}),"Заменяю фрагмент…",Done::AppliedTake);
+                                        }
+                                    });
+                                    if ["failed","paused"].contains(&s(&live,"status")) && ui.button("Повторить").clicked() {
+                                        self.post(format!("/jobs/{}/resume",s(take,"id")),json!({}),"Возобновляю дубль…",Done::Changed);
+                                    }
+                                    if ["queued","running"].contains(&s(&live,"status")) && ui.button("Пауза").clicked() {
+                                        self.post(format!("/jobs/{}/pause",s(take,"id")),json!({}),"Приостанавливаю дубль…",Done::Changed);
+                                    }
+                                });
+                                if !s(&live,"error").is_empty(){ui.label(s(&live,"error"));}
+                                if s(take,"text")!=self.repair_text {
+                                    ui.collapsing("Текст этого дубля",|ui| {hint(ui,self.palette,s(take,"text"));});
+                                }
+                                ui.separator();
+                            });
+                        }
+                    });
+                    hint(ui,self.palette,"Исходный звук можно вернуть из списка. Уже сохранённые MP3 не меняются: после выбора экспортируйте книгу снова.");
+                }
+            });
+            if !open {
+                self.repair = None;
+            }
+        }
+        if let Some(mut rules) = self.rules.clone() {
+            let mut open = true;
+            egui::Window::new("Словарь произношения").open(&mut open).default_width(640.0).show(ctx,|ui| {
+                ui.spacing_mut().item_spacing.y=12.0;
+                ui.label("Одна строка: исходная фраза=текст для модели");
+                hint(ui,self.palette,"Совпадение точное, с учётом регистра. Правила применяются при следующей озвучке; правила книги имеют приоритет. Готовые записи не меняются.");
+                ui.add(egui::TextEdit::multiline(&mut rules).desired_rows(9).desired_width(f32::INFINITY).hint_text("к мосту=к мосту́"));
+                hint(ui,self.palette,"Знак ударения может исказить слово в Qwen. Сначала проверьте замену в дублях и сохраните только удачный вариант текста. Одинаковый текст не гарантирует одинаковое произношение.");
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Добавить пример «к мосту»").clicked() {if !rules.is_empty(){rules.push('\n');}rules.push_str("к мосту=к мосту́");}
+                    if ui.add_enabled(self.busy.is_empty(),egui::Button::new("Сохранить правила")).clicked() {
+                        let mut map=BTreeMap::new();let mut valid=true;
+                        for line in rules.lines().filter(|l| !l.trim().is_empty()) {
+                            if let Some((a,b))=line.split_once('=') {if a.trim().is_empty()||b.trim().is_empty(){valid=false;}map.insert(a.trim(),b.trim());} else {valid=false;}
+                        }
+                        if valid {self.post("/pronunciation".into(),json!({"rules":map}),"Сохраняю словарь…",Done::RulesSaved);} else {self.notice=Some(("Заполните обе части каждой строки: фраза=произношение".into(),true));}
+                    }
+                });
+            });
+            self.rules = if open { Some(rules) } else { None };
+        }
+    }
     fn job_controls(&mut self, ui: &mut egui::Ui, job: &Value, full: bool) {
         let total = job["total"].as_f64().unwrap_or(1.0).max(1.0);
         let completed = job["completed"].as_f64().unwrap_or(0.0);
@@ -863,6 +1008,17 @@ impl StudioApp {
                     }
                 }
             });
+        }
+        if s(job, "status") == "done"
+            && job["repair_parent"].is_null()
+            && ui.button("Исправить произношение").clicked()
+        {
+            let route = format!("/jobs/{}/repair", s(job, "id"));
+            self.task(
+                "Открываю фрагменты…",
+                Done::Repair,
+                move |api| api.get(&route),
+            );
         }
         if s(job, "status") == "running" && completed == 0.0 {
             hint(
@@ -1221,11 +1377,11 @@ impl StudioApp {
                             self.persist();
                         }
                         ui.checkbox(&mut self.numbers, "Читать числа словами");
-                        ui.checkbox(&mut self.auto_stress, "Расставлять ударения");
+                        hint(ui, p, "Qwen · без автоматических ударений");
                         if ui
                             .add_enabled(
                                 self.dirty.is_empty(),
-                                egui::Button::new("Показать текст с ударениями"),
+                                egui::Button::new("Проверить текст для озвучки"),
                             )
                             .clicked()
                         {
@@ -1252,6 +1408,7 @@ impl StudioApp {
                             .iter()
                             .find(|j| {
                                 j["preview"] == true
+                                    && j["repair_parent"].is_null()
                                     && s(j, "project_id") == self.prefs.book
                                     && s(j, "voice_id") == self.voice
                                     && s(j, "status") == "done"
@@ -1302,7 +1459,7 @@ impl StudioApp {
                             &mut self.remove_furniture,
                             "Убирать номера страниц и колонтитулы",
                         );
-                        ui.label("Ударения для всей книги");
+                        ui.label("Подсказки произношения для этой книги");
                         ui.add(
                             egui::TextEdit::multiline(&mut self.dictionary)
                                 .desired_rows(3)
@@ -1626,7 +1783,10 @@ impl StudioApp {
             });
         }
         ui.collapsing("Пробы звучания", |ui| {
-            for job in jobs.iter().filter(|j| j["preview"] == true) {
+            for job in jobs
+                .iter()
+                .filter(|j| j["preview"] == true && j["repair_parent"].is_null())
+            {
                 ui.push_id(s(job, "id"), |ui| {
                     ui.label(s(job, "title"));
                     self.job_controls(ui, job, false);
@@ -1639,6 +1799,12 @@ impl StudioApp {
         ui.set_max_width(960.0);
         let p = self.palette;
         title(ui, "Настройки", 36.0);
+        ui.add_space(18.0);
+        if ui.button("Словарь произношения для всех книг").clicked() {
+            self.task("Открываю словарь…", Done::Rules, |api| {
+                api.get("/pronunciation")
+            });
+        }
         ui.add_space(18.0);
         panel(p).show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -1843,6 +2009,7 @@ impl eframe::App for StudioApp {
                         });
                     });
             });
+        self.pronunciation_windows(ctx);
         if self.prepared.is_some() {
             let mut open = true;
             egui::Window::new("Текст, который услышит модель")

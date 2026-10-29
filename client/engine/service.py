@@ -6,6 +6,7 @@ import threading
 import time
 import re
 import wave
+import uuid
 from pathlib import Path
 from .books import chunk_text, prepare_text, spoken_blocks
 from .export import export_book, export_mp3
@@ -104,6 +105,7 @@ class Studio:
         if chapter_index is not None:
             if not 0 <= chapter_index < len(chapters): raise ValueError('Глава не найдена')
             chapters = [chapters[chapter_index]]
+        options = {**options, 'dictionary': {**self.pronunciation_rules(), **options.get('dictionary', {})}}
         texts, slices = [], []
         for index, chapter in chapters:
             if chapter.language not in LANGUAGES:
@@ -124,6 +126,66 @@ class Studio:
                 'voice_id':voice_id,'voice_hash':voice['sha256'],'transcript':voice['transcript'],
                 'language':chapters[0][1].language,'chapters':slices}
         return self.queue.enqueue(texts,spec)
+
+    def pronunciation_rules(self):
+        path = self.root/'pronunciation.json'
+        return json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+
+    def save_pronunciation_rules(self, rules):
+        if len(rules)>500 or any(not k.strip() or not v.strip() or len(k)>200 or len(v)>300 for k,v in rules.items()):
+            raise ValueError('Не более 500 непустых правил: фраза до 200, замена до 300 символов')
+        with self.guard:
+            path=self.root/'pronunciation.json'
+            temp=path.with_suffix('.tmp')
+            temp.write_text(json.dumps(rules,ensure_ascii=False,indent=2),encoding='utf-8')
+            temp.replace(path)
+        return rules
+
+    def repair_state(self, identifier):
+        parent=self.queue.state(identifier)
+        if json.loads(parent['spec']).get('repair_parent'):
+            raise ValueError('Откройте исходную аудиокнигу')
+        takes=[]
+        for job in reversed(self.queue.summaries()):
+            spec=json.loads(job['spec'])
+            if spec.get('repair_parent')==identifier:
+                chunk=self.queue.state(job['id'])['chunks'][0]
+                takes.append({'id':job['id'],'position':spec['repair_position'],
+                              'original':bool(spec.get('repair_original')),'text':chunk['text'],
+                              'cache_key':chunk['cache_key'],'status':job['status'],'error':job['error']})
+        return {'id':identifier,'chunks':parent['chunks'],'takes':takes}
+
+    def create_takes(self, identifier, position, text, count=3):
+        self.license().authorize()
+        if not text.strip() or len(text)>2000 or not 1<=count<=5:
+            raise ValueError('Укажите текст до 2000 символов и от 1 до 5 дублей')
+        with self.guard:
+            parent=self.queue.state(identifier)
+            parent_spec=json.loads(parent['spec'])
+            if parent['status']!='done' or parent_spec.get('repair_parent'):
+                raise ValueError('Выберите готовую аудиокнигу')
+            if not 0<=position<len(parent['chunks']): raise ValueError('Фрагмент не найден')
+            chunk=parent['chunks'][position]
+            if not self.queue.audio_duration(self.queue.cache/(chunk['cache_key']+'.wav')):
+                raise ValueError('Исходный звук отсутствует или повреждён')
+            if chunk['text'].startswith('[[pause:'): raise ValueError('Выберите фрагмент речи, а не паузу')
+            spec={**self.queue.chunk_spec(parent_spec,position),'preview':True,'auto_stress':False,
+                  'chapters':[],'repair_parent':identifier,'repair_position':position}
+            # Keep the original as a completed take so it survives restarts and can be restored.
+            if not any(t['position']==position and t['original'] for t in self.repair_state(identifier)['takes']):
+                original=self.queue.enqueue([chunk['text']],{**spec,'repair_original':True})
+                with self.queue.connect() as db:
+                    db.execute('UPDATE chunks SET cache_key=?,done=1,seconds=?,audio_seconds=? WHERE job=?',
+                               (chunk['cache_key'],chunk['seconds'],chunk['audio_seconds'],original))
+                    db.execute("UPDATE jobs SET status='done' WHERE id=?",(original,))
+            for _ in range(count):
+                self.queue.enqueue([text],{**spec,'take_nonce':str(uuid.uuid4())})
+        return self.repair_state(identifier)
+
+    def apply_take(self, identifier, position, take, expected_key):
+        with self.guard:
+            self.queue.replace_chunk(identifier,position,take,expected_key)
+        return self.repair_state(identifier)
 
     def render(self, text, spec, output):
         pause=re.fullmatch(r'\[\[pause:(\d+)\]\]',text)
@@ -223,7 +285,7 @@ class Studio:
             # Older jobs did not record the explicit chapter choice.
             scope = 'chapter' if spec.get('chapter_index') is not None or chapter_count < book_chapters else 'book'
             result.append({'id':job['id'],'project_id':spec.get('project_id'),'title':spec['title'],'status':job['status'],'error':job['error'],
-                           'voice_id':spec.get('voice_id'),'preview':spec.get('preview',False),'scope':scope,
+                           'voice_id':spec.get('voice_id'),'repair_parent':spec.get('repair_parent'),'preview':spec.get('preview',False),'scope':scope,
                            'chapter_titles':[c['title'] for c in spec.get('chapters',[])],
                            'completed':job['completed'],'total':job['total'],'audio_seconds':job['audio_seconds'],'compute_seconds':job['compute_seconds'],'rtf':rtf})
         return result

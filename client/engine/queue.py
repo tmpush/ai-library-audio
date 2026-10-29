@@ -99,6 +99,28 @@ class RenderQueue:
         with self.connect() as db:
             db.execute("UPDATE jobs SET status='paused' WHERE id=? AND status IN ('queued','running')", (identifier,))
 
+    def replace_chunk(self, identifier, position, take_id, expected_key):
+        """Switch one immutable audio reference, with optimistic concurrency protection."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            parent = db.execute('SELECT * FROM jobs WHERE id=?', (identifier,)).fetchone()
+            take = db.execute('SELECT * FROM jobs WHERE id=?', (take_id,)).fetchone()
+            if parent is None or take is None: raise KeyError(identifier)
+            spec = json.loads(take['spec'])
+            if parent['status'] != 'done' or take['status'] != 'done':
+                raise ValueError('Дождитесь завершения озвучки и дубля')
+            if spec.get('repair_parent') != identifier or spec.get('repair_position') != position:
+                raise ValueError('Этот дубль относится к другому фрагменту')
+            current = db.execute('SELECT * FROM chunks WHERE job=? AND position=?', (identifier,position)).fetchone()
+            source = db.execute('SELECT * FROM chunks WHERE job=? AND position=0', (take_id,)).fetchone()
+            if current is None or source is None: raise KeyError(position)
+            if current['cache_key'] != expected_key:
+                raise ValueError('Фрагмент уже изменён. Обновите список дублей')
+            if not source['done'] or not self.audio_duration(self.cache/(source['cache_key']+'.wav')):
+                raise ValueError('Звук дубля отсутствует или повреждён')
+            db.execute('UPDATE chunks SET text=?,cache_key=?,seconds=?,audio_seconds=? WHERE job=? AND position=?',
+                       (source['text'],source['cache_key'],source['seconds'],source['audio_seconds'],identifier,position))
+
     def resume(self, identifier):
         with self.connect() as db:
             db.execute("UPDATE jobs SET status='queued',error=NULL WHERE id=? AND status IN ('paused','failed')", (identifier,))

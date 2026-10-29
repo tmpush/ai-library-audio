@@ -73,6 +73,22 @@ class Download(BaseModel):
     bytes: int = Field(gt=0)
     confirmed: bool = False
 
+class Takes(BaseModel):
+    position: int = Field(ge=0)
+    text: str = Field(min_length=1,max_length=2000)
+    count: int = Field(default=3,ge=1,le=5)
+
+class ChooseTake(BaseModel):
+    position: int = Field(ge=0)
+    take: str
+    expected_key: str
+
+class Pronunciation(BaseModel):
+    rules: dict[str,str]
+
+class PronunciationText(BaseModel):
+    text: str = Field(max_length=2000)
+
 
 def create_app(directory: Path, token: str, ui_directory: Path | None = None):
     if len(token) < 32:
@@ -165,6 +181,28 @@ def create_app(directory: Path, token: str, ui_directory: Path | None = None):
 
     @app.get('/jobs')
     def jobs(): return studio.jobs()
+
+    @app.get('/pronunciation')
+    def pronunciation(): return studio.pronunciation_rules()
+
+    @app.post('/pronunciation')
+    def save_pronunciation(body:Pronunciation): return studio.save_pronunciation_rules(body.rules)
+
+    @app.post('/pronunciation/preview')
+    def preview_pronunciation(body:PronunciationText):
+        from .books import Block
+        return {'text':prepare_text([Block(body.text)],dictionary=studio.pronunciation_rules())}
+
+    @app.get('/jobs/{identifier}/repair')
+    def repair(identifier:str): return studio.repair_state(identifier)
+
+    @app.post('/jobs/{identifier}/takes')
+    def takes(identifier:str,body:Takes):
+        return studio.create_takes(identifier,body.position,body.text,body.count)
+
+    @app.post('/jobs/{identifier}/choose-take')
+    def choose_take(identifier:str,body:ChooseTake):
+        return studio.apply_take(identifier,body.position,body.take,body.expected_key)
 
     @app.get('/jobs/{identifier}/chunks')
     def chunks(identifier:str):
@@ -331,7 +369,7 @@ def create_app(directory: Path, token: str, ui_directory: Path | None = None):
         chapter = book.chapters[body.chapter]
         book.preparation=body.model_dump(exclude={'chapter'})
         library.save(book,identifier)
-        text = prepare_text(spoken_blocks(book,chapter.start,chapter.end), remove_notes=body.remove_notes, numbers=body.numbers, auto_stress=body.auto_stress, dictionary=body.dictionary, remove_page_furniture=body.remove_page_furniture,language=chapter.language)
+        text = prepare_text(spoken_blocks(book,chapter.start,chapter.end), remove_notes=body.remove_notes, numbers=body.numbers, auto_stress=body.auto_stress, dictionary={**studio.pronunciation_rules(),**body.dictionary}, remove_page_furniture=body.remove_page_furniture,language=chapter.language)
         return {"text": text, "chunks": chunk_text(text)}
 
     if ui_directory is not None:
