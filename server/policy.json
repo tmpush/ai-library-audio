@@ -1,0 +1,6 @@
+{
+  "default_devices": 2,
+  "offline_days": 7,
+  "check_hours": 24,
+  "plans": {"month": {"days": 30, "label": "Месяц"}, "year": {"days": 365, "label": "Год"}}
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Книжная мастерская",
+  "version": "0.1.0",
+  "identifier": "app.localbooks.studio",
+  "build": {"beforeDevCommand":"npm run dev","beforeBuildCommand":"npm run build","devUrl":"http://127.0.0.1:5173","frontendDist":"../dist"},
+  "app": {
+    "windows": [{"label":"main","title":"Книжная мастерская","width":1280,"height":900,"minWidth":760,"minHeight":600}],
+    "security": {"csp":"default-src 'self'; connect-src ipc: http://ipc.localhost http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:"}
+  },
+  "bundle": {"active":true,"targets":"all","externalBin":["binaries/books-engine"],"icon":["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"]}
+}

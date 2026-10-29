@@ -1,0 +1,14 @@
+.venv
+.venv-tts
+build
+backups
+*.pem
+node_modules
+client
+tests
+samples
+artifacts
+data
+.env
+models
+.git

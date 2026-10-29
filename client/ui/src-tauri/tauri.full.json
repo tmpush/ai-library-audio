@@ -1,0 +1,6 @@
+{
+  "bundle": {
+    "externalBin": [],
+    "resources": {"../../../build/sidecar-full/books-engine/": "engine/"}
+  }
+}

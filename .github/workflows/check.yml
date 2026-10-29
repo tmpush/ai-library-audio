@@ -1,0 +1,42 @@
+name: Checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: books_test
+          POSTGRES_USER: books
+          POSTGRES_PASSWORD: test-only-ci-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U books -d books_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: uv sync --frozen
+      - run: uv run pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://books:test-only-ci-password@127.0.0.1:5432/books_test
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: client/ui/package-lock.json
+      - run: npm ci
+      - run: npm run build

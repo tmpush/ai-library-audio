@@ -1,0 +1,5 @@
+# Optional. Install only into a dedicated TTS-enabled build environment.
+# Model weights are not included and are downloaded separately by explicit action.
+qwen-tts==0.1.1
+torch>=2.6,<3
+torchaudio>=2.6,<3

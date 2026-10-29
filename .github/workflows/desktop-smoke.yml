@@ -1,0 +1,39 @@
+name: Desktop preparation build (without TTS)
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: client/ui/package-lock.json
+      - run: rustup default stable
+      - run: uv sync --frozen
+      - run: uv run python scripts/build_sidecar.py
+      - run: uv run python scripts/verify_sidecar.py
+      - run: npm ci
+        working-directory: client/ui
+      - run: npm run tauri build
+        working-directory: client/ui
+        env:
+          BOOKS_LICENSE_URL: ${{ vars.BOOKS_LICENSE_URL }}
+          BOOKS_LICENSE_PUBLIC_KEY: ${{ vars.BOOKS_LICENSE_PUBLIC_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preparation-only-${{ matrix.os }}
+          path: |
+            client/ui/src-tauri/target/release/bundle/
+            artifacts/sidecar-check.json
+          if-no-files-found: error

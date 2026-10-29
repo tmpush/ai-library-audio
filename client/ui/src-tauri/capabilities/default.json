@@ -1,0 +1,1 @@
+{"identifier":"default","description":"Main local window; sidecar is launched only by Rust","windows":["main"],"permissions":["core:default"]}
