@@ -2,6 +2,8 @@
 
 Windows x64: Inno Setup EXE и соседние BIN-части. macOS 14+ Apple Silicon: PKG внутри DMG. Версия 0.3.1. Установка включает Python, зависимости Qwen и FFmpeg, но не модель, пользовательскую библиотеку или ключ лицензии.
 
+Готовый проверенный выпуск 0.3.1: [Windows и macOS в GitHub Actions](https://github.com/tmpush/ai-library-audio/actions/runs/41059366284). Локальные копии находятся в `dist/installers/Windows` и `dist/installers/macOS`. [Установка/удаление Windows прошли отдельную проверку](https://github.com/tmpush/ai-library-audio/actions/runs/41061776046).
+
 ## Сборка
 
 Workflow `.github/workflows/installers.yml` собирает обе системы на соответствующих GitHub runners. Запускается вручную или изменением файлов упаковки. Результаты доступны во вкладке Actions → Native installers → Artifacts. Распакуйте весь ZIP Windows перед запуском EXE; BIN нельзя отделять от EXE.
