@@ -26,7 +26,10 @@ def main():
     macos.mkdir(parents=True)
     resources.mkdir()
     shutil.copy2(ROOT / 'client/native/target/release/local-books-order', macos)
-    shutil.copytree(ROOT / 'build/sidecar-full/books-engine', macos / 'engine', symlinks=True)
+    # Python package data belongs in Resources: codesign treats dotted directories
+    # under MacOS as nested code bundles (e.g. *.dist-info), which is invalid.
+    engine = resources / 'engine'
+    shutil.copytree(ROOT / 'build/sidecar-full/books-engine', engine, symlinks=True)
     for f in (ROOT / 'client/native/assets').glob('*-OFL.txt'):
         shutil.copy2(f, resources)
     with (contents / 'Info.plist').open('wb') as f:
@@ -43,10 +46,13 @@ def main():
             'NSMicrophoneUsageDescription': 'Запись вашего голоса для локальной озвучки книг.',
         }, f)
     # Ad-hoc signature is for local integrity only, not Apple notarization.
-    run('codesign', '--force', '--deep', '--sign', '-', app)
+    # PyInstaller has already signed the nested Mach-O files. Seal app resources
+    # without recursively treating Python package metadata as bundles.
+    run('codesign', '--verify', '--strict', engine/'books-engine')
+    run('codesign', '--force', '--sign', '-', app)
     run('codesign', '--verify', '--deep', '--strict', app)
-    run(os.sys.executable, ROOT/'scripts/verify_sidecar.py', '--executable', macos/'engine/books-engine')
-    run(macos/'engine/_internal/tools/ffmpeg', '-version')
+    run(os.sys.executable, ROOT/'scripts/verify_sidecar.py', '--executable', engine/'books-engine')
+    run(engine/'_internal/tools/ffmpeg', '-version')
     output = ROOT/'dist/macos'
     output.mkdir(parents=True, exist_ok=True)
     pkg = output/f'LocalBooksStudio-{VERSION}-macos-arm64.pkg'

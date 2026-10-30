@@ -71,7 +71,7 @@ impl Api {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let engine_path = std::env::var_os("BOOKS_ENGINE_PATH")
             .map(PathBuf::from)
-            .unwrap_or_else(|| exe.parent().unwrap().join(if cfg!(target_os="windows") {"engine/books-engine.exe"} else {"engine/books-engine"}));
+            .unwrap_or_else(|| exe.parent().unwrap().join(if cfg!(target_os="windows") {"engine/books-engine.exe"} else {"../Resources/engine/books-engine"}));
         let token = format!(
             "{}{}",
             uuid::Uuid::new_v4().simple(),
