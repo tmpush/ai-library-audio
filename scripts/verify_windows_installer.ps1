@@ -14,6 +14,10 @@ if ($p.ExitCode -ne 0) { throw "Install failed: $($p.ExitCode)" }
 foreach ($item in @('local-books-order.exe','engine/books-engine.exe','unins000.exe')) {
     if (!(Test-Path -LiteralPath (Join-Path $target $item))) { throw "Missing installed file: $item" }
 }
+$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Книжная мастерская.lnk'
+if (!(Test-Path -LiteralPath $shortcut)) { throw 'Start menu shortcut was not created' }
+$link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
+if ($link.TargetPath -ne (Join-Path $target 'local-books-order.exe')) { throw 'Shortcut points to the wrong executable' }
 & (Join-Path $projectRoot '.venv/Scripts/python.exe') (Join-Path $projectRoot 'scripts/verify_sidecar.py') --executable (Join-Path $target 'engine/books-engine.exe')
 if ($LASTEXITCODE -ne 0) { throw 'Installed engine failed verification' }
 $userData = Join-Path $env:APPDATA 'app.localbooks.studio'
@@ -23,6 +27,7 @@ Set-Content -LiteralPath $sentinel -Value 'Keep user data'
 $p = Start-Process -FilePath (Join-Path $target 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -Wait -PassThru
 if ($p.ExitCode -ne 0) { throw "Uninstall failed: $($p.ExitCode)" }
 if (Test-Path -LiteralPath (Join-Path $target 'local-books-order.exe')) { throw 'Uninstall left the executable behind' }
+if (Test-Path -LiteralPath $shortcut) { throw 'Uninstall left the shortcut behind' }
 if (!(Test-Path -LiteralPath $sentinel)) { throw 'Uninstall deleted user data' }
-@{install=$true;installed_engine=$true;uninstall=$true;user_data_preserved=$true} | ConvertTo-Json | Set-Content (Join-Path $projectRoot 'artifacts/installer-check.json')
+@{install=$true;shortcut=$true;installed_engine=$true;uninstall=$true;user_data_preserved=$true} | ConvertTo-Json | Set-Content (Join-Path $projectRoot 'artifacts/installer-check.json')
 Write-Output 'Installer acceptance passed: install, relocated engine, uninstall, user data preserved.'
