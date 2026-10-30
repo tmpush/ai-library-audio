@@ -1,5 +1,6 @@
 use reqwest::blocking::{multipart, Client, Response};
 use serde_json::{json, Value};
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::{
     fs::{self, File},
@@ -10,7 +11,11 @@ use std::{
 };
 
 pub fn data_dir() -> PathBuf {
-    PathBuf::from(std::env::var_os("APPDATA").expect("APPDATA")).join("app.localbooks.studio")
+    #[cfg(target_os = "windows")]
+    let base = PathBuf::from(std::env::var_os("APPDATA").expect("APPDATA"));
+    #[cfg(not(target_os = "windows"))]
+    let base = PathBuf::from(std::env::var_os("HOME").expect("HOME")).join("Library/Application Support");
+    base.join("app.localbooks.studio")
 }
 pub struct Engine(pub Child);
 impl Drop for Engine {
@@ -39,7 +44,9 @@ impl Api {
     pub fn start() -> Result<(Self, Engine), String> {
         // The owner's local license service may not have started at Windows login.
         // Recover it when opening the app; remote deployments use their own service.
+        #[cfg(target_os = "windows")]
         let license_url = option_env!("BOOKS_LICENSE_URL").unwrap_or("http://127.0.0.1:8791");
+        #[cfg(target_os = "windows")]
         if license_url == "http://127.0.0.1:8791" {
             let address = "127.0.0.1:8791".parse().unwrap();
             let available = || std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok();
@@ -64,7 +71,7 @@ impl Api {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let engine_path = std::env::var_os("BOOKS_ENGINE_PATH")
             .map(PathBuf::from)
-            .unwrap_or_else(|| exe.parent().unwrap().join("engine/books-engine.exe"));
+            .unwrap_or_else(|| exe.parent().unwrap().join(if cfg!(target_os="windows") {"engine/books-engine.exe"} else {"engine/books-engine"}));
         let token = format!(
             "{}{}",
             uuid::Uuid::new_v4().simple(),
@@ -82,10 +89,11 @@ impl Api {
                 "BOOKS_LICENSE_PUBLIC_KEY",
                 option_env!("BOOKS_LICENSE_PUBLIC_KEY").unwrap_or(""),
             )
-            .creation_flags(0x08000000)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(File::create(root.join("engine.log")).map_err(|e| e.to_string())?);
+        #[cfg(target_os = "windows")]
+        command.creation_flags(0x08000000);
         let mut engine = Engine(
             command
                 .spawn()
@@ -196,7 +204,7 @@ impl Api {
     }
 }
 pub fn open_folder(path: &Path) -> Result<(), String> {
-    Command::new("explorer.exe")
+    Command::new(if cfg!(target_os="windows") {"explorer.exe"} else {"/usr/bin/open"})
         .arg(path)
         .spawn()
         .map(|_| ())

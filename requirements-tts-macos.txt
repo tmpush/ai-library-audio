@@ -1,0 +1,7 @@
+# Apple Silicon only. No CUDA dependencies or model downloads.
+qwen-tts==0.1.1
+transformers==4.57.3
+accelerate==1.12.0
+torch==2.9.1
+torchaudio==2.9.1
+ruaccent-predictor==1.2.0

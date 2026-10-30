@@ -308,8 +308,8 @@ impl StudioApp {
             transcript: audio::SCRIPT.into(),
             license_key: String::new(),
             model_dir: String::new(),
-            device: "cuda:0".into(),
-            backend: "cuda_graphs".into(),
+            device: if cfg!(target_os="windows") {"cuda:0"} else {"cpu"}.into(),
+            backend: "auto".into(),
             catalog: None,
             download: Value::Null,
             hardware: Value::Null,
@@ -1689,7 +1689,7 @@ impl StudioApp {
                 title(ui,"Прочитайте вслух",27.0);hint(ui,p,"Спокойно, обычным голосом. 10–30 секунд, без музыки и долгих пауз.");ui.add_space(12.0);
                 ui.label(RichText::new(audio::SCRIPT).font(serif(21.0)));ui.add_space(18.0);
                 if self.microphones.is_empty(){self.microphones=audio::microphones();}
-                ui.add_enabled_ui(self.recording.is_none(),|ui|{egui::ComboBox::from_id_salt("microphone").width(ui.available_width()-12.0).selected_text(if self.microphone.is_empty(){"Микрофон Windows по умолчанию"}else{&self.microphone}).show_ui(ui,|ui|{ui.selectable_value(&mut self.microphone,String::new(),"По умолчанию");for name in &self.microphones{ui.selectable_value(&mut self.microphone,name.clone(),name);}});});
+                ui.add_enabled_ui(self.recording.is_none(),|ui|{egui::ComboBox::from_id_salt("microphone").width(ui.available_width()-12.0).selected_text(if self.microphone.is_empty(){"Системный микрофон"}else{&self.microphone}).show_ui(ui,|ui|{ui.selectable_value(&mut self.microphone,String::new(),"По умолчанию");for name in &self.microphones{ui.selectable_value(&mut self.microphone,name.clone(),name);}});});
                 if let Some(rec)=&self.recording {
                     ui.label(RichText::new(format!("ИДЁТ ЗАПИСЬ · {} / 0:30",duration(rec.started.elapsed().as_secs_f64()))).color(if self.prefs.dark{c(0xffb5ad)}else{c(0x9d3028)}));
                     ui.add(egui::ProgressBar::new((rec.level()*5.0).min(1.0)).text("Уровень микрофона"));
@@ -1859,8 +1859,8 @@ impl StudioApp {
             title(ui,"Озвучка на компьютере",25.0);ui.label("Модель Qwen3-TTS · русский язык · локальная обработка");
             hint(ui,p,"Модель загружается в память при первой озвучке и остаётся доступной до закрытия программы.");
             ui.label("Папка установленной модели");ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut self.model_dir).desired_width((ui.available_width()-130.0).max(200.0)));if ui.button("Выбрать…").clicked(){if let Some(path)=rfd::FileDialog::new().pick_folder(){self.model_dir=path.to_string_lossy().into();}}});
-            ui.horizontal(|ui|{ui.label("Вычисления");egui::ComboBox::from_id_salt("device").selected_text(if self.device=="cuda:0"{"Видеокарта NVIDIA (CUDA)"}else{"Процессор"}).show_ui(ui,|ui|{ui.selectable_value(&mut self.device,"cuda:0".into(),"Видеокарта NVIDIA (CUDA)");ui.selectable_value(&mut self.device,"cpu".into(),"Процессор");});
-                egui::ComboBox::from_id_salt("backend").selected_text(match self.backend.as_str(){"cuda_graphs"=>"Ускорение NVIDIA","standard"=>"Обычный режим",_=>"Автовыбор"}).show_ui(ui,|ui|{for (mode,label) in [("auto","Автовыбор"),("cuda_graphs","Ускорение NVIDIA"),("standard","Обычный режим")]{ui.selectable_value(&mut self.backend,mode.into(),label);}});
+            ui.horizontal(|ui|{ui.label("Вычисления");egui::ComboBox::from_id_salt("device").selected_text(if self.device=="cuda:0"{"Видеокарта NVIDIA (CUDA)"}else{"Процессор"}).show_ui(ui,|ui|{if cfg!(target_os="windows") {ui.selectable_value(&mut self.device,"cuda:0".into(),"Видеокарта NVIDIA (CUDA)");}ui.selectable_value(&mut self.device,"cpu".into(),"Процессор");});
+                egui::ComboBox::from_id_salt("backend").selected_text(match self.backend.as_str(){"cuda_graphs"=>"Ускорение NVIDIA","standard"=>"Обычный режим",_=>"Автовыбор"}).show_ui(ui,|ui|{for (mode,label) in [("auto","Автовыбор"),("cuda_graphs","Ускорение NVIDIA"),("standard","Обычный режим")]{if mode!="cuda_graphs" || cfg!(target_os="windows") {ui.selectable_value(&mut self.backend,mode.into(),label);}}});
             });
             if ui.button("Проверить модель и сохранить").clicked(){self.post("/settings/model".into(),json!({"directory":self.model_dir,"device":self.device,"backend":self.backend}),"Проверяю файлы модели…",Done::Changed);}
             if ui.button("Информация об оборудовании").clicked(){self.task("Проверяю оборудование…",Done::Hardware,|api|api.get("/hardware"));}

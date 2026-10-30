@@ -68,6 +68,7 @@ with tempfile.TemporaryDirectory(prefix='lbo-sidecar-check-') as directory:
         process.wait(timeout=15)
         assert process.returncode==0,errors
         report={'platform':platform.platform(),'executable_bytes':executable.stat().st_size,'startup_seconds':round(startup,3),'checks':['ready handshake','authenticated projects','unauthenticated denied','FB2/EPUB/PDF import','Russian normalization','cover conversion','English language detection data','graceful shutdown'],'exit_code':process.returncode}
+        (root/'artifacts').mkdir(exist_ok=True)
         (root/'artifacts/sidecar-check.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
         print(json.dumps(report))
     except Exception:

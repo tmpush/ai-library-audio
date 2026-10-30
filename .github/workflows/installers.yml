@@ -1,0 +1,99 @@
+name: Native installers
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/installers.yml'
+      - 'packaging/**'
+      - 'scripts/build_macos_installer.py'
+      - 'scripts/build_windows_installer.ps1'
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.11'
+      - name: Install build dependencies
+        run: |
+          uv sync --frozen
+          uv pip install --python .venv/bin/python -r requirements-tts-macos.txt
+          brew install ffmpeg
+      - name: Build native client
+        shell: bash
+        env:
+          LICENSE_URL: ${{ vars.BOOKS_LICENSE_URL }}
+          LICENSE_KEY: ${{ vars.BOOKS_LICENSE_PUBLIC_KEY }}
+        run: |
+          export BOOKS_LICENSE_URL="${LICENSE_URL:-$(.venv/bin/python -c 'import json; print(json.load(open("packaging/license-public.json", encoding="utf-8-sig"))["url"])')}"
+          export BOOKS_LICENSE_PUBLIC_KEY="${LICENSE_KEY:-$(.venv/bin/python -c 'import json; print(json.load(open("packaging/license-public.json", encoding="utf-8-sig"))["public_key"])')}"
+          cargo build --release --locked --manifest-path client/native/Cargo.toml
+      - name: Build engine with portable FFmpeg
+        run: |
+          mkdir -p build/ffmpeg-runtime
+          cp "$(which ffmpeg)" build/ffmpeg-runtime/ffmpeg
+          cp "$(brew --prefix ffmpeg)/.brew/ffmpeg.rb" build/ffmpeg-runtime/homebrew-formula.rb
+          curl --fail --location https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/COPYING.GPLv3 -o build/ffmpeg-runtime/COPYING.GPLv3
+          .venv/bin/python scripts/build_sidecar.py --with-tts --onedir --ffmpeg-dir build/ffmpeg-runtime
+      - name: Package and verify relocated engine
+        run: .venv/bin/python scripts/build_macos_installer.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalBooksStudio-macos-arm64
+          path: |
+            dist/macos/
+            artifacts/sidecar-check.json
+          compression-level: 0
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.11'
+      - name: Install build dependencies
+        run: |
+          uv sync --frozen
+          uv pip install --python .venv/Scripts/python.exe -r requirements-tts-windows.lock.txt --torch-backend cu128
+      - name: Build native client
+        env:
+          BOOKS_LICENSE_URL: ${{ vars.BOOKS_LICENSE_URL }}
+          BOOKS_LICENSE_PUBLIC_KEY: ${{ vars.BOOKS_LICENSE_PUBLIC_KEY }}
+        run: |
+          $config = Get-Content packaging/license-public.json -Raw | ConvertFrom-Json
+          if (!$env:BOOKS_LICENSE_URL) { $env:BOOKS_LICENSE_URL = $config.url }
+          if (!$env:BOOKS_LICENSE_PUBLIC_KEY) { $env:BOOKS_LICENSE_PUBLIC_KEY = $config.public_key }
+          cargo build --release --locked --manifest-path client/native/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Rust build failed' }
+      - name: Fetch FFmpeg
+        run: |
+          New-Item -ItemType Directory -Force build/ffmpeg-runtime | Out-Null
+          Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile build/ffmpeg.zip
+          Expand-Archive build/ffmpeg.zip build/ffmpeg-source
+          $source = (Get-ChildItem build/ffmpeg-source -Directory | Select-Object -First 1).FullName
+          Copy-Item "$source/bin/ffmpeg.exe" build/ffmpeg-runtime/
+          Copy-Item "$source/bin/ffprobe.exe" build/ffmpeg-runtime/
+          Copy-Item "$source/LICENSE" build/ffmpeg-runtime/
+          Copy-Item "$source/README.txt" build/ffmpeg-runtime/
+      - name: Build full engine
+        run: .venv/Scripts/python.exe scripts/build_sidecar.py --with-tts --onedir --ffmpeg-dir build/ffmpeg-runtime
+      - name: Verify frozen engine
+        run: .venv/Scripts/python.exe scripts/verify_sidecar.py --executable build/sidecar-full/books-engine/books-engine.exe
+      - name: Build installer
+        run: ./scripts/build_windows_installer.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalBooksStudio-windows-x64
+          path: |
+            dist/windows/
+            artifacts/sidecar-check.json
+          compression-level: 0
+          if-no-files-found: error

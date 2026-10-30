@@ -23,17 +23,23 @@ command=[sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onedir' if
     '--workpath',str(root/'build/pyinstaller'),'--specpath',str(root/'build')]
 if args.with_tts:
     packages=['qwen_tts','torch','torchaudio','transformers','accelerate','tokenizers',
-              'huggingface_hub','soundfile','librosa','onnxruntime','einops','sox','faster_qwen3_tts','ruaccent']
+              'huggingface_hub','soundfile','librosa','onnxruntime','einops','sox','ruaccent']
+    if system == 'Windows': packages.append('faster_qwen3_tts')
     missing=[package for package in packages if importlib.util.find_spec(package) is None]
     if missing:raise SystemExit('Install approved TTS dependencies into this build environment first: '+', '.join(missing))
     for package in packages:command+=['--collect-all',package]
-    for distribution in ['qwen-tts','faster-qwen3-tts','ruaccent-predictor']:
+    distributions = ['qwen-tts','ruaccent-predictor']
+    if system == 'Windows': distributions.append('faster-qwen3-tts')
+    for distribution in distributions:
         command+=['--copy-metadata',distribution]
 if args.ffmpeg_dir:
     folder=args.ffmpeg_dir.expanduser().resolve()
     if not (folder/('ffmpeg.exe' if system=='Windows' else 'ffmpeg')).is_file():
         raise SystemExit('The supplied directory must contain ffmpeg (and its licenses/runtime dependencies)')
     command+=['--add-data',str(folder)+':tools']
+    if system == 'Darwin':
+        # Collect/rewrite Mach-O dependencies; copying a Homebrew binary alone is not portable.
+        command+=['--add-binary',str(folder/'ffmpeg')+':tools']
 command.append(str(root/'client/sidecar.py'))
 subprocess.run(command,check=True,cwd=root)
 if args.onedir:

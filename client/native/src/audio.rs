@@ -32,7 +32,7 @@ impl Recording {
                 .ok()
                 .and_then(|mut d| d.find(|d| d.name().ok().as_deref() == Some(name)))
         }
-        .ok_or("Микрофон не найден. Подключите его и проверьте разрешения Windows")?;
+        .ok_or("Микрофон не найден. Подключите его и проверьте разрешения системы")?;
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
         let rate = supported.sample_rate().0;
         let channels = supported.channels() as usize;
@@ -78,7 +78,7 @@ impl Recording {
             ),
             _ => {
                 return Err(
-                    "Этот формат микрофона не поддерживается. Выберите другой вход Windows".into(),
+                    "Этот формат микрофона не поддерживается. Выберите другой аудиовход".into(),
                 )
             }
         }
