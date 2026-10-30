@@ -37,6 +37,28 @@ pub struct Api {
 }
 impl Api {
     pub fn start() -> Result<(Self, Engine), String> {
+        // The owner's local license service may not have started at Windows login.
+        // Recover it when opening the app; remote deployments use their own service.
+        let license_url = option_env!("BOOKS_LICENSE_URL").unwrap_or("http://127.0.0.1:8791");
+        if license_url == "http://127.0.0.1:8791" {
+            let address = "127.0.0.1:8791".parse().unwrap();
+            let available = || std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok();
+            if !available() {
+                if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                    let service = PathBuf::from(local).join("Programs/LocalBooksLicenseServer/books-license-server.exe");
+                    if service.is_file() && Command::new(&service)
+                        .current_dir(service.parent().unwrap())
+                        .creation_flags(0x08000000)
+                        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+                        .spawn().is_ok() {
+                        let until = Instant::now() + Duration::from_secs(10);
+                        while Instant::now() < until && !available() {
+                            std::thread::sleep(Duration::from_millis(200));
+                        }
+                    }
+                }
+            }
+        }
         let root = data_dir();
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;

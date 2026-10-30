@@ -12,6 +12,7 @@ from urllib.parse import unquote
 from bs4 import BeautifulSoup
 from defusedxml import ElementTree as ET
 from .numbers import normalize_numbers
+from .pronunciation import normalize_symbols
 from pypdf import PdfReader
 from langdetect import detect_langs, DetectorFactory, LangDetectException
 DetectorFactory.seed = 0
@@ -58,8 +59,12 @@ def detect_chapters(blocks: list[Block]) -> list[Chapter]:
     chapters = [Chapter(blocks[start].text if blocks[start].kind == "heading" else "Начало",
                     start, starts[i + 1] if i + 1 < len(starts) else len(blocks))
             for i, start in enumerate(starts)] if blocks else []
+    previous_language = 'ru'
     for chapter in chapters:
         text=' '.join(b.text for b in blocks[chapter.start:chapter.end])[:5000]
+        if len(re.findall(r'[^\W\d_]', text)) < 40:
+            chapter.language = previous_language
+            continue
         try:
             detected=detect_langs(text)
             language=detected[0].lang
@@ -67,6 +72,7 @@ def detect_chapters(blocks: list[Block]) -> list[Chapter]:
                 chapter.language={'zh-cn':'zh','zh-tw':'zh'}.get(language,language)
         except LangDetectException:
             pass
+        previous_language = chapter.language
     return chapters
 
 
@@ -168,6 +174,7 @@ def _epub(path: Path):
             def append(node,text,heading=False):
                 text=clean_space(text)
                 note = any("footnote" in str(a.get("epub:type", "")) or a.get("role") == "doc-footnote"
+                           or re.fullmatch(r'note\d+', str(a.get('id','')), re.I)
                            for a in [node, *node.parents] if getattr(a, "attrs", None))
                 if text:
                     blocks.append(Block(text, "note" if note else "heading" if heading else "paragraph", name))
@@ -236,10 +243,16 @@ def prepare_text(blocks: list[Block], *, remove_notes=False, numbers=False, dict
     if numbers:
         text = normalize_numbers(text, language)
     rules = {k:v for k,v in (dictionary or {}).items() if k}
+    saved = []
     if rules:
         # One pass: replacement text must not trigger another pronunciation rule.
         pattern = r"(?<!\w)(?:" + "|".join(re.escape(k) for k in sorted(rules,key=len,reverse=True)) + r")(?!\w)"
-        text = re.sub(pattern, lambda match: rules[match.group()], text)
+        def protect(match):
+            saved.append(rules[match.group()])
+            return '\ue200' + str(len(saved)-1) + '\ue201'
+        text = re.sub(pattern, protect, text)
+    text = normalize_symbols(text, language)
+    text = re.sub('\ue200(\d+)\ue201', lambda m: saved[int(m[1])], text)
     if auto_stress:
         from .stress import automatic_stress
         text = automatic_stress(text, language)

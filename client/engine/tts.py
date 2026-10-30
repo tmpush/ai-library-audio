@@ -6,6 +6,12 @@ from pathlib import Path
 LANGUAGES = {"ru": "Russian", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian", "pt": "Portuguese", "zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 
 
+def is_cuda_oom(exc):
+    # Match PyTorch CUDA errors, not unrelated host memory or model failures.
+    return (type(exc).__name__ == 'OutOfMemoryError' and type(exc).__module__.startswith('torch')) or bool(
+        __import__('re').search(r'CUDA (?:out of memory|error: out of memory)', str(exc), __import__('re').I))
+
+
 def select_backend(device, backend='auto'):
     if backend not in {'auto', 'standard', 'cuda_graphs'}:
         raise ValueError('Неизвестный режим озвучки')

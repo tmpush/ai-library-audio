@@ -199,6 +199,7 @@ pub struct StudioApp {
     repair: Option<Value>,
     repair_position: usize,
     repair_text: String,
+    repair_search: String,
     rules: Option<String>,
     delete_confirm: bool,
     split_title: String,
@@ -291,6 +292,7 @@ impl StudioApp {
             repair: None,
             repair_position: 0,
             repair_text: String::new(),
+            repair_search: String::new(),
             rules: None,
             delete_confirm: false,
             split_title: "Новая глава".into(),
@@ -818,7 +820,7 @@ impl StudioApp {
     fn pronunciation_windows(&mut self, ctx: &egui::Context) {
         if let Some(data) = self.repair.clone() {
             let mut open = true;
-            egui::Window::new("Исправить произношение").open(&mut open).default_width(760.0).show(ctx, |ui| {
+            egui::Window::new("Исправить произношение").open(&mut open).default_width(760.0).max_height((ctx.available_rect().height()-60.0).max(320.0)).vscroll(true).show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = 12.0;
                 ui.label("Выберите фрагмент, сравните дубли и оставьте лучший.");
                 hint(ui,self.palette,"Используется голос и модель этой записи. Остальная книга останется без изменений.");
@@ -826,12 +828,16 @@ impl StudioApp {
                     ui.label(format!("Голос записи: {}",self.job_voice(job)));
                 }
                 let chunks=list(&data["chunks"]);
+                ui.add(egui::TextEdit::singleline(&mut self.repair_search).hint_text("Найти слово или фразу в записи").desired_width(f32::INFINITY));
+                let query=self.repair_search.to_lowercase();
                 let before=self.repair_position;
                 egui::ComboBox::from_id_salt("repair_chunk").width(690.0).selected_text(format!("Фрагмент {} из {}",before+1,chunks.len())).show_ui(ui,|ui| {
                     for (i,c) in chunks.iter().enumerate() {
+                        if !query.is_empty() && !s(c,"text").to_lowercase().contains(&query) {continue;}
                         ui.selectable_value(&mut self.repair_position,i,format!("{} · {}",i+1,s(c,"text").chars().take(72).collect::<String>()));
                     }
                 });
+                if !query.is_empty() {hint(ui,self.palette,format!("Найдено фрагментов: {}. Выберите нужный в списке.",chunks.iter().filter(|c|s(c,"text").to_lowercase().contains(&query)).count()));}
                 if before!=self.repair_position {self.repair_text=s(&chunks[self.repair_position],"text").into();}
                 let position=self.repair_position;
                 if let Some(chunk)=chunks.get(position) {
@@ -863,7 +869,7 @@ impl StudioApp {
                                 self.task("Обновляю…",Done::Repair,move |api| api.get(&route));
                             }
                             if ui.button("Словарь фраз…").clicked() {self.task("Открываю словарь…",Done::Rules,|api| api.get("/pronunciation"));}
-                            if ui.button("Применить словарь к тексту").clicked() {
+                            if ui.button("Подготовить произношение").clicked() {
                                 self.post("/pronunciation/preview".into(),json!({"text":self.repair_text}),"Применяю правила…",Done::RepairText);
                             }
                         });
@@ -911,7 +917,7 @@ impl StudioApp {
         }
         if let Some(mut rules) = self.rules.clone() {
             let mut open = true;
-            egui::Window::new("Словарь произношения").open(&mut open).default_width(640.0).show(ctx,|ui| {
+            egui::Window::new("Словарь произношения").open(&mut open).default_width(640.0).max_height((ctx.available_rect().height()-60.0).max(320.0)).vscroll(true).show(ctx,|ui| {
                 ui.spacing_mut().item_spacing.y=12.0;
                 ui.label("Одна строка: исходная фраза=текст для модели");
                 hint(ui,self.palette,"Совпадение точное, с учётом регистра. Правила применяются при следующей озвучке; правила книги имеют приоритет. Готовые записи не меняются.");
@@ -919,6 +925,17 @@ impl StudioApp {
                 hint(ui,self.palette,"Знак ударения может исказить слово в Qwen. Сначала проверьте замену в дублях и сохраните только удачный вариант текста. Одинаковый текст не гарантирует одинаковое произношение.");
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Добавить пример «к мосту»").clicked() {if !rules.is_empty(){rules.push('\n');}rules.push_str("к мосту=к мосту́");}
+                    if ui.button("Добавить фразы с X/Х").clicked() {if !rules.is_empty(){rules.push('\n');}rules.push_str("что X=что икс\nчто Х=что икс\nпротивоположна X=противоположна икс\nпротивоположна Х=противоположна икс");}
+                    if ui.button("Загрузить TXT…").clicked() {
+                        if let Some(path)=rfd::FileDialog::new().add_filter("Словарь UTF-8", &["txt"]).pick_file() {
+                            match std::fs::read_to_string(path) {Ok(text)=>rules=text,Err(e)=>self.notice=Some((format!("Не удалось загрузить словарь: {e}"),true))}
+                        }
+                    }
+                    if ui.button("Сохранить TXT…").clicked() {
+                        if let Some(path)=rfd::FileDialog::new().add_filter("Словарь UTF-8", &["txt"]).set_file_name("Произношение.txt").save_file() {
+                            if let Err(e)=std::fs::write(path,&rules) {self.notice=Some((format!("Не удалось сохранить словарь: {e}"),true));}
+                        }
+                    }
                     if ui.add_enabled(self.busy.is_empty(),egui::Button::new("Сохранить правила")).clicked() {
                         let mut map=BTreeMap::new();let mut valid=true;
                         for line in rules.lines().filter(|l| !l.trim().is_empty()) {

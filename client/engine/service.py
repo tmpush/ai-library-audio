@@ -17,6 +17,7 @@ from .tts import QwenEngine, LANGUAGES, select_backend
 from .voices import VoiceLibrary
 from .denoise import reduce_noise, REVISION as AUDIO_REVISION
 from .numbers import REVISION as TEXT_REVISION
+from .pronunciation import REVISION as PRONUNCIATION_REVISION
 from .stress import REVISION as STRESS_REVISION, AUTO_REVISION
 
 
@@ -122,7 +123,7 @@ class Studio:
                 break
         spec = {**self.settings,'project_id':identifier,'title':book.title,'author':book.author,
                 'cover_id':book.cover_id,'denoise':denoise,'audio_revision':AUDIO_REVISION if denoise else 'raw',
-                'text_revision':TEXT_REVISION,'stress_revision':STRESS_REVISION,'auto_stress_revision':AUTO_REVISION if options.get('auto_stress') else None,'auto_stress':bool(options.get('auto_stress')),'preview':preview,'chapter_index':chapter_index,
+                'text_revision':TEXT_REVISION,'pronunciation_revision':PRONUNCIATION_REVISION,'stress_revision':STRESS_REVISION,'auto_stress_revision':AUTO_REVISION if options.get('auto_stress') else None,'auto_stress':bool(options.get('auto_stress')),'preview':preview,'chapter_index':chapter_index,
                 'voice_id':voice_id,'voice_hash':voice['sha256'],'transcript':voice['transcript'],
                 'language':chapters[0][1].language,'chapters':slices}
         return self.queue.enqueue(texts,spec)
@@ -188,6 +189,27 @@ class Studio:
         return self.repair_state(identifier)
 
     def render(self, text, spec, output):
+        try:
+            self._render(text, spec, output)
+        except Exception as exc:
+            from .tts import is_cuda_oom
+            if not is_cuda_oom(exc):
+                raise
+            # Drop partially constructed models/graphs before a user-initiated retry.
+            self.engine = None
+            self.engine_key = None
+            import traceback
+            traceback.clear_frames(exc.__traceback__)
+            import gc
+            gc.collect()
+            import sys
+            torch = sys.modules.get('torch')
+            if torch is not None:
+                try: torch.cuda.empty_cache()
+                except Exception: pass
+            raise ValueError('Недостаточно видеопамяти NVIDIA (VRAM). Готовые фрагменты сохранены. Закройте приложения, использующие видеокарту, затем нажмите «Продолжить». Либо выберите CPU в настройках и создайте новую задачу; CPU работает медленнее.') from exc
+
+    def _render(self, text, spec, output):
         pause=re.fullmatch(r'\[\[pause:(\d+)\]\]',text)
         if pause:
             milliseconds=int(pause[1])
