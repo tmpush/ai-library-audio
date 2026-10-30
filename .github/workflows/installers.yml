@@ -76,7 +76,8 @@ jobs:
       - name: Fetch FFmpeg
         run: |
           New-Item -ItemType Directory -Force build/ffmpeg-runtime | Out-Null
-          Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile build/ffmpeg.zip
+          Invoke-WebRequest https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip -OutFile build/ffmpeg.zip -MaximumRetryCount 3
+          if ((Get-FileHash build/ffmpeg.zip -Algorithm SHA256).Hash.ToLower() -ne '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba') { throw 'FFmpeg checksum mismatch' }
           Expand-Archive build/ffmpeg.zip build/ffmpeg-source
           $source = (Get-ChildItem build/ffmpeg-source -Directory | Select-Object -First 1).FullName
           Copy-Item "$source/bin/ffmpeg.exe" build/ffmpeg-runtime/

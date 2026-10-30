@@ -1,6 +1,8 @@
-# Нативная Книжная мастерская 0.3
+# Нативная Книжная мастерская 0.3.1
 
-Интерфейс Windows написан на Rust с egui/eframe (OpenGL), без React, HTML, JavaScript, Tauri и WebView. Golos Text и Lora включены в executable с OFL-лицензиями в assets. Диалоги файлов — rfd / Windows; микрофон — CPAL; звук — Rodio; запись — WAV PCM16 mono 24 kHz.
+Интерфейс Windows и macOS написан на Rust с egui/eframe (OpenGL), без React, HTML, JavaScript, Tauri и WebView. Golos Text и Lora включены в executable с OFL-лицензиями в assets. Диалоги файлов — rfd / системные диалоги; микрофон — CPAL; звук — Rodio; запись — WAV PCM16 mono 24 kHz.
+
+Готовые пакеты EXE для Windows и PKG/DMG для Apple Silicon собираются отдельно: [инструкция и ограничения](../../INSTALLERS.md).
 
 ## Сборка и установка
 
@@ -14,7 +16,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_desktop.ps1
 
 Нужны Rust MSVC и Microsoft C++ Build Tools. Для запуска установленной программы инструменты разработчика не нужны. `Cargo.lock` фиксирует зависимости. Скрипт сборки встраивает только URL сервера лицензий и публичный ключ; приватные ключи и ключ пользователя не входят в бинарный файл.
 
-Установщик требует закрыть программу, сохраняет прежний executable в `backups/<timestamp>` и обновляет ярлыки. Библиотека, голоса, кэш, лицензия и настройки модели остаются в `%APPDATA%/app.localbooks.studio`. `native-ui.json` хранит тему, последнюю книгу, голоса для книг и папку экспорта. Обратный переход к прежнему executable совместим с этой библиотекой; дополнительные маршруты движка не меняют старые.
+Локальный скрипт install_desktop.ps1 требует закрыть программу, сохраняет прежний executable в `backups/<timestamp>` и обновляет ярлыки. Библиотека, голоса, кэш, лицензия и настройки модели остаются в `%APPDATA%/app.localbooks.studio`. `native-ui.json` хранит тему, последнюю книгу, голоса для книг и папку экспорта. Обратный переход к прежнему executable совместим с этой библиотекой; дополнительные маршруты движка не меняют старые.
 
 ## Как устроено
 
