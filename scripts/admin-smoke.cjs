@@ -10,6 +10,7 @@ async function downloadText(download){const chunks=[];for await(const chunk of a
  await page.getByRole('button',{name:'Войти',exact:true}).click();
  await page.getByRole('button',{name:'Создать ключи'}).waitFor();
  await page.getByLabel('Количество',{exact:true}).fill('2');
+ await page.getByLabel('Срок, дней',{exact:true}).fill('15');
  await page.getByRole('button',{name:'Создать ключи'}).click();
  await page.getByLabel('Созданные ключи').waitFor();
  const keys=(await page.getByLabel('Созданные ключи').inputValue()).split('\n');
@@ -28,6 +29,10 @@ async function downloadText(download){const chunks=[];for await(const chunk of a
  const row=page.getByRole('row').filter({has:page.getByRole('cell',{name:prefix,exact:true})});
  await row.getByRole('cell',{name:'2 / 2',exact:true}).waitFor();
  const before=await row.locator('td').nth(2).textContent();
+ page.once('dialog',d=>d.accept('year'));
+ await row.getByRole('button',{name:'Тариф',exact:true}).click();
+ await row.getByRole('cell',{name:'Год',exact:true}).waitFor();
+ if(await row.locator('td').nth(2).textContent()!==before)throw Error('Plan changed expiration');
  page.once('dialog',d=>d.accept('30'));
  await row.getByRole('button',{name:'Продлить',exact:true}).click();
  await page.waitForFunction(({prefix,before})=>Array.from(document.querySelectorAll('#rows tr')).find(tr=>tr.firstChild.textContent===prefix)?.children[2].textContent!==before,{prefix,before});
@@ -51,7 +56,8 @@ async function downloadText(download){const chunks=[];for await(const chunk of a
  await page.getByText('Журнал последних событий',{exact:true}).click();
  await page.screenshot({path:'artifacts/admin.png',fullPage:true});
  await page.emulateMedia({colorScheme:'dark'});await page.screenshot({path:'artifacts/admin-dark.png',fullPage:true});
- await page.getByRole('button',{name:'Выйти',exact:true}).click();
+ await page.route('**/admin/licenses',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({detail:'Сессия истекла'})}));
+ await page.getByRole('button',{name:'Обновить',exact:true}).click();
  await page.getByRole('heading',{name:'Вход администратора'}).waitFor();
  if(await page.getByLabel('Созданные ключи').inputValue())throw Error('Logout did not clear keys');
  if(errors.length)throw Error(errors.join('\n'));

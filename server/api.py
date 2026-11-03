@@ -32,8 +32,10 @@ class Issue(StrictModel):
     plan: str = "month"
     devices: int | None = Field(default=None, ge=1, le=100)
     count: int = Field(default=1, ge=1, le=100)
+    days: int | None = Field(default=None, ge=1, le=3650)
 
 class Update(StrictModel):
+    plan: str | None = None
     revoke: bool = False
     extend_days: int = Field(default=0, ge=0, le=3650)
     devices: int | None = Field(default=None, ge=1, le=100)
@@ -124,7 +126,7 @@ def create_app(store: LicenseStore, admin_hash: str, jwt_secret: str, username="
 
     @app.post("/admin/licenses", dependencies=[Depends(admin)])
     def issue(body: Issue):
-        return store.issue_batch(body.plan,body.devices,body.count)
+        return store.issue_batch(body.plan,body.devices,body.count,days=body.days)
 
     @app.patch("/admin/licenses/{identifier}", dependencies=[Depends(admin)])
     def update(identifier: str, body: Update):

@@ -64,12 +64,14 @@ class LicenseStore:
     def issue(self, plan='month', devices=None, now=None):
         return self.issue_batch(plan,devices,1,now)[0]
 
-    def issue_batch(self, plan='month', devices=None, count=1, now=None):
+    def issue_batch(self, plan='month', devices=None, count=1, now=None, *, days=None):
         now = int(time.time()) if now is None else now
         devices = self.policy['default_devices'] if devices is None else devices
         if plan not in self.policy['plans'] or not 1 <= devices <= 100 or not 1<=count<=100:
             raise LicenseError('Некорректный тариф или лимит устройств')
-        expires = now + self.policy['plans'][plan]['days'] * 86400
+        if days is not None and not 1 <= days <= 3650:
+            raise LicenseError('Срок должен быть от 1 до 3650 дней')
+        expires = now + (self.policy['plans'][plan]['days'] if days is None else days) * 86400
         issued=[]
         with self.engine.begin() as db:
             for _ in range(count):
@@ -112,9 +114,11 @@ class LicenseStore:
             return [dict(row) for row in db.execute(select(licenses.c.id, licenses.c.prefix, licenses.c.plan, licenses.c.expires,
                 licenses.c.max_devices, licenses.c.revoked, count.label('activations')).order_by(licenses.c.expires.desc(), licenses.c.id)).mappings()]
 
-    def update(self, identifier, *, revoke=False, extend_days=0, devices=None, now=None):
+    def update(self, identifier, *, revoke=False, extend_days=0, devices=None, now=None, plan=None):
         now = int(time.time()) if now is None else now
-        if extend_days < 0 or (devices is not None and not 1 <= devices <= 100):
+        if plan is not None and plan not in self.policy['plans']:
+            raise LicenseError('Неизвестный тариф')
+        if not 0 <= extend_days <= 3650 or (devices is not None and not 1 <= devices <= 100):
             raise LicenseError('Некорректное изменение')
         with self.engine.begin() as db:
             row = db.execute(select(licenses).where(licenses.c.id == identifier).with_for_update()).mappings().first()
@@ -125,6 +129,7 @@ class LicenseStore:
                 if devices<active:raise LicenseError('Сначала освободите лишние активации, затем уменьшите лимит')
             expires = max(now, row['expires'])+extend_days*86400 if extend_days else row['expires']
             db.execute(licenses.update().where(licenses.c.id == identifier).values(expires=expires,
+                plan=row['plan'] if plan is None else plan,
                 max_devices=row['max_devices'] if devices is None else devices, revoked=1 if revoke else row['revoked']))
             self.event(db, identifier, 'updated', now)
 
