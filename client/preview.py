@@ -58,7 +58,7 @@ def main():
                 session_file.write_text(json.dumps({'url':url}),encoding='utf-8')
                 if args.no_browser:print(json.dumps({'url':url}),flush=True)
                 else:
-                    print('Книжная мастерская открывается в браузере. Закройте это окно, чтобы остановить обработчик.',flush=True)
+                    print('Lunatica открывается в браузере. Закройте это окно, чтобы остановить обработчик.',flush=True)
                     webbrowser.open(url)
     app=create_app(data,token,frontend)
     if args.with_samples:

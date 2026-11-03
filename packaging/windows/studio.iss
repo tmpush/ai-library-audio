@@ -4,11 +4,11 @@
 #define AppVersion "0.3.1"
 [Setup]
 AppId={{27A6264D-1716-4417-ACDC-AFB52EAEE69D}
-AppName=Книжная мастерская
+AppName=Lunatica
 AppVersion={#AppVersion}
-AppPublisher=Local Books Studio
+AppPublisher=Lunatica
 DefaultDirName={localappdata}\Programs\LocalBooksStudio
-DefaultGroupName=Книжная мастерская
+DefaultGroupName=Lunatica
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -33,12 +33,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; Flags: checkedonce
 [Files]
 Source: "{#ProjectRoot}\client\native\target\release\local-books-order.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#ProjectRoot}\client\native\assets\icon.ico"; DestDir: "{app}"; DestName: "lunatica-icon.ico"; Flags: ignoreversion
 Source: "{#ProjectRoot}\build\sidecar-full\books-engine\*"; DestDir: "{app}\engine"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#ProjectRoot}\packaging\windows\readme.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\client\native\assets\*-OFL.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 [Icons]
-Name: "{autoprograms}\Книжная мастерская"; Filename: "{app}\local-books-order.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\Книжная мастерская"; Filename: "{app}\local-books-order.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\Lunatica"; Filename: "{app}\local-books-order.exe"; WorkingDir: "{app}"; IconFilename: "{app}\lunatica-icon.ico"
+Name: "{autodesktop}\Lunatica"; Filename: "{app}\local-books-order.exe"; WorkingDir: "{app}"; IconFilename: "{app}\lunatica-icon.ico"; Tasks: desktopicon
 [Run]
-Filename: "{app}\local-books-order.exe"; Description: "Открыть Книжную мастерскую"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\local-books-order.exe"; Description: "Открыть Lunatica"; Flags: nowait postinstall skipifsilent
 ; No UninstallDelete: the user's library, voices, model and license are preserved.

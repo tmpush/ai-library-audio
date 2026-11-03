@@ -44,7 +44,7 @@ class Update(StrictModel):
 def create_app(store: LicenseStore, admin_hash: str, jwt_secret: str, username="admin"):
     if len(jwt_secret) < 32 or not admin_hash:
         raise ValueError("Configure admin password hash and JWT secret (at least 32 characters)")
-    app = FastAPI(title="Local Books License API", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Lunatica License API", docs_url=None, redoc_url=None)
     bearer = HTTPBearer()
     attempts = defaultdict(deque)
 

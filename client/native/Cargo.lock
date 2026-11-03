@@ -1925,6 +1925,7 @@ dependencies = [
  "fs2",
  "hound",
  "image",
+ "raw-window-handle",
  "reqwest",
  "rfd",
  "rodio",

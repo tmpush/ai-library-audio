@@ -2,6 +2,7 @@
 mod audio;
 mod backend;
 mod studio;
+mod taskbar;
 
 use fs2::FileExt;
 fn main() -> eframe::Result {
@@ -16,7 +17,7 @@ fn main() -> eframe::Result {
         .expect("Application lock");
     if lock.try_lock_exclusive().is_err() {
         rfd::MessageDialog::new()
-            .set_title("Книжная мастерская")
+            .set_title("Lunatica")
             .set_description("Программа уже открыта. Выберите её окно на панели задач.")
             .show();
         return Ok(());
@@ -32,8 +33,11 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "Книжная мастерская",
+        "Lunatica",
         options,
-        Box::new(|cc| Ok(Box::new(studio::StudioApp::new(cc)))),
+        Box::new(|cc| {
+            taskbar::set_icon(cc);
+            Ok(Box::new(studio::StudioApp::new(cc)))
+        }),
     )
 }

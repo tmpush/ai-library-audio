@@ -19,12 +19,13 @@ def main():
     stage = ROOT / 'build' / 'macos-package'
     if stage.exists():
         raise SystemExit('Use a fresh build/macos-package directory (existing package is preserved).')
-    app = stage / 'Книжная мастерская.app'
+    app = stage / 'Lunatica.app'
     contents = app / 'Contents'
     macos = contents / 'MacOS'
     resources = contents / 'Resources'
     macos.mkdir(parents=True)
     resources.mkdir()
+    shutil.copy2(ROOT / "client/native/assets/icon.icns", resources / "icon.icns")
     shutil.copy2(ROOT / 'client/native/target/release/local-books-order', macos)
     # Python package data belongs in Resources: codesign treats dotted directories
     # under MacOS as nested code bundles (e.g. *.dist-info), which is invalid.
@@ -35,10 +36,11 @@ def main():
     with (contents / 'Info.plist').open('wb') as f:
         plistlib.dump({
             'CFBundleIdentifier': 'app.localbooks.studio',
-            'CFBundleName': 'Книжная мастерская',
-            'CFBundleDisplayName': 'Книжная мастерская',
+            'CFBundleName': 'Lunatica',
+            'CFBundleDisplayName': 'Lunatica',
             'CFBundleExecutable': 'local-books-order',
             'CFBundlePackageType': 'APPL',
+            'CFBundleIconFile': 'icon.icns',
             'CFBundleShortVersionString': VERSION,
             'CFBundleVersion': VERSION,
             'LSMinimumSystemVersion': '14.0',
@@ -63,7 +65,7 @@ def main():
     shutil.copy2(pkg, disk)
     shutil.copy2(ROOT/'packaging/macos/README.txt', disk/'README.txt')
     dmg = output/f'LocalBooksStudio-{VERSION}-macos-arm64.dmg'
-    run('hdiutil', 'create', '-volname', 'Local Books Studio', '-srcfolder', disk, '-format', 'UDZO', dmg)
+    run('hdiutil', 'create', '-volname', 'Lunatica', '-srcfolder', disk, '-format', 'UDZO', dmg)
     with (output/'SHA256SUMS.txt').open('w') as f:
         for path in [pkg, dmg]:
             with path.open('rb') as stream:

@@ -122,27 +122,27 @@ impl Palette {
     fn new(dark: bool) -> Self {
         if dark {
             Self {
-                bg: c(0x211e20),
-                surface: c(0x2c282b),
-                hover: c(0x383237),
-                text: c(0xf7f3f5),
-                muted: c(0xc3b6bf),
-                border: c(0x4a4047),
-                accent: c(0xd9baf3),
-                ink: c(0x3b2649),
-                soft: c(0x403244),
+                bg: c(0x202023),
+                surface: c(0x29292d),
+                hover: c(0x34343b),
+                text: c(0xf4f3f6),
+                muted: c(0xb6b4bf),
+                border: c(0x44444d),
+                accent: c(0xc7aff0),
+                ink: c(0x30213f),
+                soft: c(0x393343),
             }
         } else {
             Self {
-                bg: c(0xfaf8f9),
+                bg: c(0xf6f6f8),
                 surface: c(0xffffff),
-                hover: c(0xf1eaf0),
-                text: c(0x30252e),
-                muted: c(0x746570),
-                border: c(0xdfd3dc),
-                accent: c(0xe7ccf8),
-                ink: c(0x41274f),
-                soft: c(0xf4e9f7),
+                hover: c(0xeeeaf5),
+                text: c(0x25242b),
+                muted: c(0x64616f),
+                border: c(0xd7d5df),
+                accent: c(0xc7aff0),
+                ink: c(0x30213f),
+                soft: c(0xeee8f7),
             }
         }
     }
@@ -151,7 +151,7 @@ fn panel(p: Palette) -> egui::Frame {
     egui::Frame::new()
         .fill(p.surface)
         .stroke(Stroke::new(1.0_f32, p.border))
-        .corner_radius(6)
+        .corner_radius(10)
         .inner_margin(24)
 }
 fn primary(ui: &mut egui::Ui, p: Palette, text: &str) -> egui::Response {
@@ -184,6 +184,7 @@ pub struct StudioApp {
     book: Value,
     chapter: usize,
     search: String,
+    chapter_only: bool,
     voice: String,
     numbers: bool,
     auto_stress: bool,
@@ -221,6 +222,7 @@ pub struct StudioApp {
     download: Value,
     hardware: Value,
     exported: Vec<String>,
+    brand_icon: egui::TextureHandle,
     covers: BTreeMap<String, egui::TextureHandle>,
     failed_covers: BTreeSet<String>,
     launch_failed: bool,
@@ -260,7 +262,10 @@ impl StudioApp {
             let _ = sender.send(Event::Ready(Api::start()));
             ctx.request_repaint();
         });
+        let brand = image::load_from_memory(include_bytes!("../assets/128x128.png")).expect("Lunatica icon").to_rgba8();
+        let brand_icon = cc.egui_ctx.load_texture("lunatica-brand", egui::ColorImage::from_rgba_unmultiplied([brand.width() as usize, brand.height() as usize], brand.as_raw()), egui::TextureOptions::LINEAR);
         Self {
+            brand_icon,
             prefs,
             palette,
             page: Page::Home,
@@ -277,6 +282,7 @@ impl StudioApp {
             book: Value::Null,
             chapter: 0,
             search: String::new(),
+            chapter_only: true,
             voice: String::new(),
             numbers: true,
             auto_stress: false,
@@ -343,13 +349,17 @@ impl StudioApp {
         visuals.widgets.active.bg_fill = p.soft;
         visuals.widgets.active.weak_bg_fill = p.soft;
         visuals.widgets.active.bg_stroke = Stroke::new(1.5_f32, p.accent);
-        visuals.hyperlink_color = if dark { p.accent } else { c(0x7c508d) };
+        visuals.hyperlink_color = if dark { p.accent } else { c(0x65438b) };
         ctx.set_visuals(visuals);
         ctx.style_mut(|style| {
             style.spacing.text_edit_width = 400.0;
-            style.spacing.item_spacing = Vec2::new(16.0, 12.0);
+            style.spacing.item_spacing = Vec2::new(12.0, 12.0);
+            style.spacing.combo_width = 160.0;
             style.spacing.button_padding = Vec2::new(16.0, 10.0);
             style.spacing.interact_size = Vec2::new(40.0, 40.0);
+            style.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+            style.visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+            style.visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
             style
                 .text_styles
                 .insert(egui::TextStyle::Body, FontId::proportional(16.0));
@@ -1009,7 +1019,7 @@ impl StudioApp {
             }
         });
         if full && s(job, "status") == "done" {
-            ui.collapsing("Другие форматы", |ui| {
+            ui.collapsing("Экспорт M4B и MP3 по главам", |ui| {
                 if ui.button("MP3 по главам + M4B…").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .set_title("Новая папка для экспорта")
@@ -1053,51 +1063,40 @@ impl StudioApp {
     }
     fn top(&mut self, ctx: &egui::Context) {
         let p = self.palette;
-        egui::TopBottomPanel::top("navigation")
-            .frame(
-                egui::Frame::new()
-                    .fill(p.bg)
-                    .inner_margin(egui::Margin::symmetric(32, 12)),
-            )
+        egui::SidePanel::left("navigation")
+            .exact_width(208.0).resizable(false)
+            .frame(egui::Frame::new().fill(if self.prefs.dark { c(0x242427) } else { c(0xeeeef2) }).inner_margin(16))
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Книжная\nмастерская").font(serif(20.0)));
-                    ui.add_space(26.0);
-                    for (page, label) in [
-                        (Page::Home, "Мои книги"),
-                        (Page::Studio, "Студия"),
-                        (Page::Voices, "Мой голос"),
-                        (Page::Exports, "Аудиокниги"),
-                        (Page::Settings, "Настройки"),
-                    ] {
-                        if ui.selectable_label(self.page == page, label).clicked() {
-                            self.navigate(page);
-                            if page == Page::Studio
-                                && self.book.is_null()
-                                && !self.prefs.book.is_empty()
-                            {
-                                self.open_book(self.prefs.book.clone());
-                            }
-                        }
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(if self.prefs.dark {
-                                "Светлая тема"
-                            } else {
-                                "Тёмная тема"
-                            })
-                            .clicked()
-                        {
-                            self.prefs.dark = !self.prefs.dark;
-                            self.palette = Palette::new(self.prefs.dark);
-                            Self::theme(ctx, self.palette, self.prefs.dark);
-                            self.persist();
-                        }
-                    });
-                });
                 ui.add_space(12.0);
-                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.add(egui::Image::new((self.brand_icon.id(), egui::vec2(32.0,32.0))).corner_radius(6.0));
+                    ui.label(RichText::new("Lunatica").font(serif(24.0)));
+                });
+                ui.add_space(8.0);
+                hint(ui,p,"Студия аудиокниг");
+                ui.add_space(32.0);
+                for (page,label) in [(Page::Home,"Библиотека"),(Page::Studio,"Студия"),(Page::Voices,"Мои голоса"),(Page::Exports,"Готовые записи")] {
+                    let selected=self.page==page;
+                    let button=egui::Button::new(RichText::new(label).size(15.0).color(if selected && !self.prefs.dark {c(0x65438b)}else{p.text}))
+                        .fill(if selected {p.soft}else{Color32::TRANSPARENT})
+                        .stroke(Stroke::NONE);
+                    if ui.add_sized([ui.available_width(),44.0],button).clicked() {
+                        self.navigate(page);
+                        if page==Page::Studio && self.book.is_null() && !self.prefs.book.is_empty() {self.open_book(self.prefs.book.clone());}
+                    }
+                    ui.add_space(4.0);
+                }
+                ui.add_space(20.0);
+                if ui.add_enabled(self.api.is_some() && self.busy.is_empty(),egui::Button::new(RichText::new("Добавить книгу…").color(p.ink)).fill(p.accent).min_size(egui::vec2(ui.available_width(),44.0))).clicked(){self.import_book();}
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min),|ui|{
+                    ui.add_space(8.0);
+                    hint(ui,p,"Книги и голос — локально");
+                    ui.add_space(12.0);
+                    if ui.add_sized([ui.available_width(),40.0],egui::Button::new(if self.prefs.dark{"Светлая тема"}else{"Тёмная тема"})).clicked(){
+                        self.prefs.dark=!self.prefs.dark;self.palette=Palette::new(self.prefs.dark);Self::theme(ctx,self.palette,self.prefs.dark);self.persist();
+                    }
+                    if ui.add_sized([ui.available_width(),40.0],egui::Button::new("Настройки").selected(self.page==Page::Settings)).clicked(){self.navigate(Page::Settings);}
+                });
             });
     }
     fn cover(
@@ -1174,20 +1173,14 @@ impl StudioApp {
             ],
             Stroke::new(2.0_f32, c(0x1d1820)),
         );
-        let galley = painter.layout(
-            s(book, "title").to_owned(),
-            serif(if width > 150.0 { 23.0 } else { 16.0 }),
-            c(fg),
-            width - 40.0,
-        );
-        painter.galley(rect.left_top() + Vec2::new(24.0, 32.0), galley, c(fg));
-        painter.text(
-            rect.left_bottom() + Vec2::new(24.0, -30.0),
-            egui::Align2::LEFT_BOTTOM,
-            "КНИЖНАЯ МАСТЕРСКАЯ",
-            FontId::proportional(9.0),
-            c(fg),
-        );
+        if width < 110.0 {
+            let initial=s(book,"title").chars().find(|ch|ch.is_alphanumeric()).unwrap_or('L').to_string();
+            painter.text(rect.center(),egui::Align2::CENTER_CENTER,initial,serif((width*0.40).min(30.0)),c(fg));
+        } else {
+            let galley=painter.layout(s(book,"title").to_owned(),serif(if width>150.0 {23.0}else{16.0}),c(fg),width-40.0);
+            painter.with_clip_rect(rect.shrink(12.0)).galley(rect.left_top()+Vec2::new(24.0,32.0),galley,c(fg));
+            painter.text(rect.left_bottom()+Vec2::new(24.0,-30.0),egui::Align2::LEFT_BOTTOM,"LUNATICA",FontId::proportional(9.0),c(fg));
+        }
         if response.hovered() {
             painter.rect_stroke(
                 rect,
@@ -1199,140 +1192,72 @@ impl StudioApp {
         response.on_hover_text("Открыть в студии")
     }
     fn home(&mut self, ui: &mut egui::Ui) {
-        let p = self.palette;
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                hint(ui, p, "Библиотека");
-                title(ui, "Мои книги", 36.0);
-            });
-        });
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            if ui.button("+ Добавить книгу…").clicked() {
-                self.import_book();
-            }
-            ui.add(
-                egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("Найти книгу")
-                    .desired_width(280.0),
-            );
-            hint(ui, p, "EPUB · FB2 · PDF");
-        });
-        ui.add_space(22.0);
-        let projects = list(&self.snapshot["projects"]);
-        if projects.is_empty() {
-            panel(p).show(ui, |ui| {
+        let p=self.palette;
+        let projects=list(&self.snapshot["projects"]);
+        title(ui,"Библиотека",30.0);
+        hint(ui,p,"Выберите книгу, чтобы продолжить озвучку.");
+        ui.add_space(20.0);
+        if projects.is_empty(){
+            panel(p).show(ui,|ui|{
                 ui.set_width(ui.available_width());
-                title(ui, "Начните с одной книги", 28.0);
-                ui.label("Добавьте файл, выберите свой голос и послушайте короткую пробу.");
+                title(ui,"Ваша первая аудиокнига",24.0);
+                ui.label("Добавьте EPUB, FB2 или PDF. Затем выберите свой голос и послушайте пробу.");
+                ui.add_space(12.0);
+                if primary(ui,p,"Добавить книгу…").clicked(){self.import_book();}
             });
             return;
         }
-        let current = projects
-            .iter()
-            .find(|b| s(b, "id") == self.prefs.book)
-            .unwrap_or(&projects[0])
-            .clone();
-        let width = ui.available_width() - 24.0;
-        ui.horizontal_top(|ui| {
-            ui.allocate_ui_with_layout(
-                Vec2::new(width * 0.65 - 12.0, 280.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    panel(p).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.set_min_width(ui.available_width());
-                        ui.horizontal_top(|ui| {
-                            if self.cover(ui, &current, 150.0, 224.0, 0).clicked() {
-                                self.open_book(s(&current, "id").into());
-                            }
-                            ui.add_space(12.0);
-                            ui.vertical(|ui| {
-                                hint(ui, p, "ПРОДОЛЖИТЬ РАБОТУ");
-                                ui.add_space(10.0);
-                                title(ui, s(&current, "title"), 30.0);
-                                ui.add_space(12.0);
-                                ui.label(status(&current["render"]));
-                                hint(ui, p, format!("Выбранный голос: {}", self.voice_name()));
-                                ui.add_space(18.0);
-                                if ui
-                                    .add_sized(
-                                        [220.0, 44.0],
-                                        egui::Button::new(
-                                            RichText::new("Открыть в студии").color(p.ink),
-                                        )
-                                        .fill(p.accent),
-                                    )
-                                    .clicked()
-                                {
-                                    self.open_book(s(&current, "id").into());
-                                }
-                            });
-                        });
-                    });
-                },
-            );
-            ui.allocate_ui_with_layout(
-                Vec2::new(width * 0.35 - 12.0, 280.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    panel(p).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.set_min_height(224.0);
-                        hint(ui, p, "ГОЛОС ДЛЯ ВАШИХ КНИГ");
-                        title(ui, self.voice_name(), 26.0);
-                        ui.add_space(8.0);
-                        ui.label("Запишите свой голос один раз. Он будет доступен в каждой книге.");
-                        ui.add_space(16.0);
-                        if secondary(ui, "Мои голоса и запись").clicked() {
-                            self.navigate(Page::Voices);
-                        }
-                        hint(ui, p, "Запись 10–30 секунд · хранится на компьютере");
-                    });
-                },
-            );
+        let current=projects.iter().find(|b|s(b,"id")==self.prefs.book).unwrap_or(&projects[0]).clone();
+        panel(p).stroke(Stroke::NONE).show(ui,|ui|{
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui|{
+                if self.cover(ui,&current,76.0,108.0,0).clicked(){self.open_book(s(&current,"id").into());}
+                ui.add_space(8.0);
+                let info_width=(ui.available_width()-212.0).max(180.0);
+                ui.allocate_ui_with_layout(Vec2::new(info_width,108.0),egui::Layout::top_down(egui::Align::Min),|ui|{
+                    ui.set_width(info_width);
+                    hint(ui,p,"ПРОДОЛЖИТЬ РАБОТУ");
+                    ui.add(egui::Label::new(RichText::new(s(&current,"title")).font(serif(24.0))).wrap());
+                    hint(ui,p,s(&current,"author"));
+                    ui.label(RichText::new(status(&current["render"])).size(14.0));
+                });
+                ui.vertical(|ui|{
+                    ui.set_width(188.0);
+                    if primary(ui,p,"Открыть в студии").clicked(){self.open_book(s(&current,"id").into());}
+                    hint(ui,p,"Текст, голос и озвучка");
+                });
+            });
         });
         ui.add_space(24.0);
-        title(ui, "На вашей полке", 26.0);
-        ui.add_space(8.0);
-        let filtered: Vec<_> = projects
-            .into_iter()
-            .filter(|b| {
-                s(b, "title")
-                    .to_lowercase()
-                    .contains(&self.search.to_lowercase())
-            })
-            .collect();
-        if filtered.is_empty() {
-            ui.label("По этому названию ничего не найдено.");
-        }
-        for (row, books) in filtered.chunks(4).enumerate() {
-            ui.horizontal_top(|ui| {
-                for (i, book) in books.iter().enumerate() {
-                    ui.push_id(s(book, "id"), |ui| {
-                        ui.allocate_ui_with_layout(
-                            Vec2::new((width - 48.0) / 4.0, 320.0),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
-                                let cover_width = ui.available_width().min(218.0);
-                                if self
-                                    .cover(ui, book, cover_width, 252.0, row * 4 + i)
-                                    .clicked()
-                                {
-                                    self.open_book(s(book, "id").into());
-                                }
-                                ui.add_space(4.0);
-                                ui.label(RichText::new(s(book, "title")).font(serif(18.0)));
-                                hint(ui, p, status(&book["render"]));
-                                if ui.button("Открыть").clicked() {
-                                    self.open_book(s(book, "id").into());
-                                }
-                            },
-                        );
-                    });
-                }
+        ui.horizontal(|ui|{
+            ui.label(RichText::new(format!("Все книги · {}",projects.len())).strong().size(18.0));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
+                ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Название или автор").margin(egui::Margin::symmetric(12,10)).desired_width(260.0));
             });
-            ui.add_space(18.0);
+        });
+        ui.add_space(12.0);
+        let query=self.search.to_lowercase();
+        let filtered:Vec<_>=projects.into_iter().filter(|b|format!("{} {}",s(b,"title"),s(b,"author")).to_lowercase().contains(&query)).collect();
+        if filtered.is_empty(){ui.label("Ничего не найдено. Попробуйте другое название или автора.");}
+        for (index,book) in filtered.iter().enumerate(){
+            ui.push_id(s(book,"id"),|ui|{
+                egui::Frame::new().fill(p.surface).corner_radius(8).inner_margin(16).show(ui,|ui|{
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui|{
+                        if self.cover(ui,book,48.0,68.0,index).clicked(){self.open_book(s(book,"id").into());}
+                        ui.add_space(4.0);
+                        let text_width=(ui.available_width()-262.0).max(140.0);
+                        ui.allocate_ui_with_layout(Vec2::new(text_width,68.0),egui::Layout::top_down(egui::Align::Min),|ui|{
+                            ui.set_width(text_width);
+                            ui.add(egui::Label::new(RichText::new(s(book,"title")).size(17.0).strong()).truncate());
+                            ui.add(egui::Label::new(RichText::new(s(book,"author")).color(p.muted).size(13.0)).truncate());
+                        });
+                        ui.allocate_ui_with_layout(Vec2::new(130.0,40.0),egui::Layout::left_to_right(egui::Align::Center),|ui|{ui.set_width(130.0);hint(ui,p,status(&book["render"]));});
+                        if ui.add_sized([96.0,40.0],egui::Button::new("Открыть")).clicked(){self.open_book(s(book,"id").into());}
+                    });
+                });
+            });
+            ui.add_space(4.0);
         }
     }
     fn studio(&mut self, ui: &mut egui::Ui) {
@@ -1351,7 +1276,7 @@ impl StudioApp {
             }
             hint(ui, p, "СТУДИЯ");
         });
-        title(ui, s(&self.book, "title"), 36.0);
+        title(ui, s(&self.book, "title"), 30.0);
         if !s(&self.book, "author").is_empty() {
             hint(ui, p, s(&self.book, "author"));
         }
@@ -1359,13 +1284,14 @@ impl StudioApp {
             hint(ui, p, warning.as_str().unwrap_or(""));
         }
         ui.add_space(14.0);
-        let width = ui.available_width() - 24.0;
-        let side = 384.0;
+        let width = ui.available_width();
+        let side = (width * 0.36).clamp(296.0, 352.0);
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
-                Vec2::new(width - side - 24.0, ui.available_height()),
+                Vec2::new(width - side - 16.0, ui.available_height()),
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
+                    ui.set_width(width-side-16.0);
                     self.book_page(ui);
                 },
             );
@@ -1374,10 +1300,11 @@ impl StudioApp {
                 Vec2::new(side, ui.available_height()),
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
-                    panel(p).inner_margin(24).show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = 12.0;
+                    ui.set_width(side);
+                    panel(p).inner_margin(20).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 10.0;
                         ui.spacing_mut().interact_size.y = 36.0;
-                        hint(ui, p, "Голос");
+                        ui.label(RichText::new("1. Голос").strong().size(18.0));
                         ui.add_space(4.0);
                         self.voice_select(ui);
                         if secondary(ui, "Добавить голос").clicked() {
@@ -1386,7 +1313,7 @@ impl StudioApp {
                         ui.add_space(5.0);
                         ui.separator();
                         ui.add_space(3.0);
-                        hint(ui, p, "Проба");
+                        ui.label(RichText::new("2. Проверка звучания").strong().size(18.0));
                         if ui
                             .checkbox(&mut self.prefs.denoise, "Снизить фоновый шум")
                             .changed()
@@ -1394,7 +1321,7 @@ impl StudioApp {
                             self.persist();
                         }
                         ui.checkbox(&mut self.numbers, "Читать числа словами");
-                        hint(ui, p, "Qwen · без автоматических ударений");
+
                         if ui
                             .add_enabled(
                                 self.dirty.is_empty(),
@@ -1404,7 +1331,7 @@ impl StudioApp {
                         {
                             self.prepare();
                         }
-                        hint(ui, p, "Короткий фрагмент выбранной главы.");
+                        hint(ui, p, "Проба — до 250 символов текущей главы.");
                         let enabled =
                             !self.voice.is_empty() && self.dirty.is_empty() && !self.preview_wait;
                         ui.add_enabled_ui(enabled, |ui| {
@@ -1439,7 +1366,8 @@ impl StudioApp {
                         ui.add_space(5.0);
                         ui.separator();
                         ui.add_space(3.0);
-                        hint(ui, p, "Озвучка");
+                        ui.label(RichText::new("3. Озвучка").strong().size(18.0));
+                        egui::ComboBox::from_id_salt("render-scope").width(ui.available_width()-16.0).selected_text(if self.chapter_only {"Выбранная глава"}else{"Вся книга"}).show_ui(ui,|ui|{ui.selectable_value(&mut self.chapter_only,true,"Выбранная глава");ui.selectable_value(&mut self.chapter_only,false,"Вся книга");});
                         let jobs = self.book_jobs();
                         let active = jobs
                             .iter()
@@ -1450,9 +1378,9 @@ impl StudioApp {
                             ui.add_enabled_ui(
                                 !self.voice.is_empty() && self.dirty.is_empty(),
                                 |ui| {
-                                    if primary(ui, p, "Озвучить всю книгу").clicked()
+                                    if primary(ui, p, if self.chapter_only {"Озвучить главу"}else{"Озвучить всю книгу"}).clicked()
                                     {
-                                        self.render(false, false);
+                                        self.render(false, self.chapter_only);
                                     }
                                 },
                             );
@@ -1467,7 +1395,7 @@ impl StudioApp {
                         if self.voice.is_empty() {
                             hint(ui, p, "Сначала запишите или добавьте свой голос.");
                         }
-                        hint(ui, p, "Озвучку можно продолжить после перезапуска.");
+                        if ui.button("Все записи и экспорт").clicked(){self.navigate(Page::Exports);}
                     });
                     ui.add_space(12.0);
                     ui.collapsing("Дополнительные параметры", |ui| {
@@ -1507,7 +1435,7 @@ impl StudioApp {
         }
         ui.horizontal_wrapped(|ui| {
             egui::ComboBox::from_id_salt("chapter")
-                .width(250.0)
+                .width((ui.available_width()-24.0).min(450.0))
                 .selected_text(format!(
                     "{} / {} · {}",
                     self.chapter + 1,
@@ -1523,7 +1451,7 @@ impl StudioApp {
                         );
                     }
                 });
-            ui.toggle_value(&mut self.edit, "Текст и ударения");
+            ui.toggle_value(&mut self.edit, "Редактировать произношение");
         });
         if !self.dirty.is_empty() {
             ui.horizontal(|ui| {
@@ -1679,15 +1607,16 @@ impl StudioApp {
     }
     fn voices(&mut self, ui: &mut egui::Ui) {
         let p = self.palette;
-        hint(ui, p, "Запись голоса");
-        title(ui, "Мой голос", 36.0);
-        ui.label("Запишите образец, затем выберите его в студии перед озвучкой.");
+
+        title(ui, "Мои голоса", 30.0);
+        ui.label("Запишите образец или выберите сохранённый голос для книги.");
+        if !self.book.is_null() && ui.button("Вернуться в студию").clicked(){self.navigate(Page::Studio);}
         ui.add_space(20.0);
-        let width = ui.available_width() - 24.0;
+        let width = ui.available_width();
         ui.horizontal_top(|ui|{
-            ui.allocate_ui_with_layout(Vec2::new(width*0.6-16.0,600.0),egui::Layout::top_down(egui::Align::Min),|ui|{panel(p).show(ui,|ui|{ui.set_width(ui.available_width());
-                title(ui,"Прочитайте вслух",27.0);hint(ui,p,"Спокойно, обычным голосом. 10–30 секунд, без музыки и долгих пауз.");ui.add_space(12.0);
-                ui.label(RichText::new(audio::SCRIPT).font(serif(21.0)));ui.add_space(18.0);
+            ui.allocate_ui_with_layout(Vec2::new((width-24.0)*0.55,600.0),egui::Layout::top_down(egui::Align::Min),|ui|{panel(p).show(ui,|ui|{ui.set_width(ui.available_width());
+                title(ui,"Запишите свой голос",24.0);hint(ui,p,"Спокойно, обычным голосом. 10–30 секунд, без музыки и долгих пауз.");ui.add_space(12.0);
+                ui.label(RichText::new(audio::SCRIPT).font(serif(20.0)));ui.add_space(18.0);
                 if self.microphones.is_empty(){self.microphones=audio::microphones();}
                 ui.add_enabled_ui(self.recording.is_none(),|ui|{egui::ComboBox::from_id_salt("microphone").width(ui.available_width()-12.0).selected_text(if self.microphone.is_empty(){"Системный микрофон"}else{&self.microphone}).show_ui(ui,|ui|{ui.selectable_value(&mut self.microphone,String::new(),"По умолчанию");for name in &self.microphones{ui.selectable_value(&mut self.microphone,name.clone(),name);}});});
                 if let Some(rec)=&self.recording {
@@ -1713,12 +1642,13 @@ impl StudioApp {
                     ui.add_enabled_ui(self.recording.is_none(),|ui|{if ui.button("Выбрать WAV и добавить голос…").clicked(){if let Some(path)=rfd::FileDialog::new().add_filter("Запись голоса", &["wav"]).pick_file(){let name=self.voice_name.clone();let transcript=self.transcript.clone();self.task("Добавляю голос…",Done::Voice,move|api|api.upload("/voices",path.file_name().unwrap().to_string_lossy().into(),std::fs::read(&path).map_err(|e|e.to_string())?,vec![("name",name),("transcript",transcript)]));}}});
                 });
             });});
-            ui.allocate_ui_with_layout(Vec2::new(width*0.4-16.0,500.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-                title(ui,"Сохранённые голоса",26.0);ui.add_space(10.0);
-                for voice in list(&self.snapshot["voices"]){ui.push_id(s(&voice,"id"),|ui|{panel(p).show(ui,|ui|{ui.set_width(ui.available_width());
-                    title(ui,s(&voice,"name"),22.0);hint(ui,p,format!("{} секунд",voice["duration"].as_f64().unwrap_or(0.0).round()));
-                    if s(&voice,"id")==self.voice{ui.label(RichText::new("Выбран").color(if self.prefs.dark{p.accent}else{c(0x7c508d)}));}
-                    else if secondary(ui,"Выбрать голос").clicked(){self.voice=s(&voice,"id").into();self.prefs.default_voice=self.voice.clone();self.prefs.voices.insert(self.prefs.book.clone(),self.voice.clone());self.persist();}
+            ui.allocate_ui_with_layout(Vec2::new((width-24.0)*0.45,500.0),egui::Layout::top_down(egui::Align::Min),|ui|{
+                title(ui,"Ваши голоса",24.0);ui.add_space(10.0);
+                let mut voices=list(&self.snapshot["voices"]);voices.sort_by_key(|v|s(v,"id")!=self.voice);
+                for voice in voices{ui.push_id(s(&voice,"id"),|ui|{panel(p).show(ui,|ui|{ui.set_width(ui.available_width());
+                    ui.label(RichText::new(s(&voice,"name")).size(18.0).strong());hint(ui,p,format!("{} секунд",voice["duration"].as_f64().unwrap_or(0.0).round()));
+                    if s(&voice,"id")==self.voice{ui.label(RichText::new("Выбран").color(if self.prefs.dark{p.accent}else{c(0x65438b)}));}
+                    else if secondary(ui,if self.book.is_null(){"Выбрать голос"}else{"Использовать для книги"}).clicked(){self.voice=s(&voice,"id").into();self.prefs.default_voice=self.voice.clone();self.prefs.voices.insert(self.prefs.book.clone(),self.voice.clone());self.persist();if !self.book.is_null(){self.navigate(Page::Studio);}}
                     if secondary(ui,"Слушать образец").clicked(){let route=format!("/voices/{}/playback",s(&voice,"id"));self.task("Открываю образец…",Done::Play(s(&voice,"name").into()),move|api|api.get(&route));}
                 });ui.add_space(12.0);});}
                 if !self.book.is_null()&&secondary(ui,"Вернуться к книге").clicked(){self.navigate(Page::Studio);}
@@ -1727,10 +1657,41 @@ impl StudioApp {
     }
     fn exports(&mut self, ui: &mut egui::Ui) {
         let p = self.palette;
-        hint(ui, p, "Записи");
-        title(ui, "Аудиокниги", 36.0);
-        ui.label("Слушайте записи и сохраняйте их в MP3.");
+
+        title(ui, "Готовые записи", 30.0);
+        ui.label("Слушайте, исправляйте произношение и экспортируйте MP3 или M4B.");
         ui.add_space(18.0);
+        let jobs = list(&self.snapshot["jobs"]);
+        if jobs.is_empty() {
+            ui.label("Пока нет озвученных книг. Начните с пробы в студии.");
+        }
+        for job in jobs.iter().filter(|j| j["preview"] != true && j["repair_parent"].is_null()) {
+            ui.push_id(s(job, "id"), |ui| {
+                panel(p).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    title(ui, s(job, "title"), 25.0);
+                    if s(job, "scope") == "chapter" {
+                        hint(
+                            ui,
+                            p,
+                            format!(
+                                "Одна глава: {}",
+                                list(&job["chapter_titles"])
+                                    .iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                        );
+                    } else {
+                        hint(ui, p, "Вся книга");
+                    }
+                    self.job_controls(ui, job, true);
+                });
+                ui.add_space(14.0);
+            });
+        }
+        ui.collapsing(format!("Сохранённые файлы · {}", self.exported.len()), |ui| {
         for path in self.exported.clone() {
             panel(p).show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -1769,36 +1730,8 @@ impl StudioApp {
             });
             ui.add_space(10.0);
         }
-        let jobs = list(&self.snapshot["jobs"]);
-        if jobs.is_empty() {
-            ui.label("Пока нет озвученных книг. Начните с пробы в студии.");
-        }
-        for job in jobs.iter().filter(|j| j["preview"] != true) {
-            ui.push_id(s(job, "id"), |ui| {
-                panel(p).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    title(ui, s(job, "title"), 25.0);
-                    if s(job, "scope") == "chapter" {
-                        hint(
-                            ui,
-                            p,
-                            format!(
-                                "Одна глава: {}",
-                                list(&job["chapter_titles"])
-                                    .iter()
-                                    .filter_map(Value::as_str)
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            ),
-                        );
-                    } else {
-                        hint(ui, p, "Вся книга");
-                    }
-                    self.job_controls(ui, job, true);
-                });
-                ui.add_space(14.0);
-            });
-        }
+        });
+        ui.add_space(12.0);
         ui.collapsing("Пробы звучания", |ui| {
             for job in jobs
                 .iter()
@@ -1813,9 +1746,9 @@ impl StudioApp {
         });
     }
     fn settings(&mut self, ui: &mut egui::Ui) {
-        ui.set_max_width(960.0);
+        ui.set_max_width(880.0);
         let p = self.palette;
-        title(ui, "Настройки", 36.0);
+        title(ui, "Настройки", 30.0);
         ui.add_space(18.0);
         if ui.button("Словарь произношения для всех книг").clicked() {
             self.task("Открываю словарь…", Done::Rules, |api| {
@@ -1877,7 +1810,7 @@ impl StudioApp {
             });
         });
         ui.add_space(16.0);
-        panel(p).show(ui,|ui|{ui.set_width(ui.available_width());title(ui,"Книжная мастерская 0.3",25.0);ui.label("Нативный интерфейс Rust / egui. Озвучка — Python / PyTorch / CUDA.");ui.label("Lora + Golos Text · тёплый графит и сирень");
+        panel(p).show(ui,|ui|{ui.set_width(ui.available_width());title(ui,"Lunatica 0.3",25.0);ui.label("Нативный интерфейс Rust / egui. Озвучка — Python / PyTorch / CUDA.");ui.label("Локальная студия аудиокниг");
             if ui.button("Открыть папку данных и журнал").clicked(){let _=backend::open_folder(&backend::data_dir());}
             hint(ui,p,"Книги и записи голоса хранятся локально. Лицензирование обращается к настроенному серверу.");
         });
@@ -1992,13 +1925,13 @@ impl eframe::App for StudioApp {
             .frame(
                 egui::Frame::new()
                     .fill(p.bg)
-                    .inner_margin(egui::Margin::symmetric(32, 20)),
+                    .inner_margin(egui::Margin::symmetric(24, 24)),
             )
             .show(ctx, |ui| {
                 if self.api.is_none() {
                     if self.launch_failed {title(ui,"Не удалось открыть модуль озвучки",30.0);ui.label("Проверьте сообщение внизу окна. Закройте другую копию программы, если она открыта.");if ui.button("Повторить запуск").clicked(){self.launch_failed=false;self.notice=None;self.started=Instant::now();let tx=self.tx.clone();let context=ctx.clone();std::thread::spawn(move||{let _=tx.send(Event::Ready(Api::start()));context.request_repaint();});}return;}
                     ui.add_space(80.0);
-                    title(ui, "Книжная мастерская", 40.0);
+                    title(ui, "Lunatica", 40.0);
                     ui.add_space(20.0);
                     ui.spinner();
                     ui.label(format!(
@@ -2017,6 +1950,7 @@ impl eframe::App for StudioApp {
                         Page::Settings => "settings",
                     })
                     .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
                         ui.add_enabled_ui(self.busy.is_empty(), |ui| match self.page {
                             Page::Home => self.home(ui),
                             Page::Studio => self.studio(ui),

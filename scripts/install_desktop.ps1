@@ -8,7 +8,7 @@ if (!(Test-Path -LiteralPath $executable) -or !(Test-Path -LiteralPath (Join-Pat
     throw 'Build the full desktop application first.'
 }
 $target = [IO.Path]::GetFullPath($Destination)
-if (Get-Process -Name local-books-order -ErrorAction SilentlyContinue) { throw 'Close the desktop app before updating it.' }
+if (!$ShortcutsOnly -and (Get-Process -Name local-books-order -ErrorAction SilentlyContinue)) { throw 'Close the desktop app before updating it.' }
 New-Item -ItemType Directory -Force -Path $target | Out-Null
 if (!$ShortcutsOnly) {
 if (Test-Path -LiteralPath (Join-Path $target 'local-books-order.exe')) {
@@ -23,6 +23,9 @@ New-Item -ItemType Directory -Force -Path $engineTarget | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Engine copy failed: robocopy exit $LASTEXITCODE" }
 $global:LASTEXITCODE = 0
 }
+# A separate icon path prevents Explorer from reusing the old executable icon.
+$shortcutIcon = Join-Path $target 'lunatica-icon.ico'
+Copy-Item -LiteralPath (Join-Path $projectRoot 'client/native/assets/icon.ico') -Destination $shortcutIcon -Force
 $shell = New-Object -ComObject WScript.Shell
 $shortcutDirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))
 foreach ($shortcutDir in $shortcutDirs) {
@@ -32,10 +35,15 @@ foreach ($shortcutDir in $shortcutDirs) {
     $link = $shell.CreateShortcut($temporaryLink)
     $link.TargetPath = Join-Path $target 'local-books-order.exe'
     $link.WorkingDirectory = $target
-    $link.IconLocation = "$target\local-books-order.exe,0"
-    $link.Description = 'Книжная мастерская — локальная подготовка и озвучка книг'
+    $link.IconLocation = "$shortcutIcon,0"
+    $link.Description = 'Lunatica — локальная подготовка и озвучка книг'
     $link.Save()
-    Move-Item -LiteralPath $temporaryLink -Destination (Join-Path $shortcutDir 'Книжная мастерская.lnk') -Force
+    Move-Item -LiteralPath $temporaryLink -Destination (Join-Path $shortcutDir 'Lunatica.lnk') -Force
+    $oldShortcut = Join-Path $shortcutDir 'Книжная мастерская.lnk'
+    if (Test-Path -LiteralPath $oldShortcut) {
+        $oldLink = $shell.CreateShortcut($oldShortcut)
+        if ($oldLink.TargetPath -eq $link.TargetPath) { Remove-Item -LiteralPath $oldShortcut }
+    }
 }
 Write-Output "Installed: $target"
 Write-Output 'Desktop and Start menu shortcuts created.'

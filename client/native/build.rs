@@ -1,13 +1,14 @@
 fn main() {
+    println!("cargo:rerun-if-changed=assets/icon.ico");
     if cfg!(target_os = "windows") {
         winresource::WindowsResource::new()
             .set_icon("assets/icon.ico")
-            .set("ProductName", "Книжная мастерская")
+            .set("ProductName", "Lunatica")
             .set(
                 "FileDescription",
-                "Книжная мастерская — нативная студия аудиокниг",
+                "Lunatica — нативная студия аудиокниг",
             )
-            .set("LegalCopyright", "Local Books Studio")
+            .set("LegalCopyright", "Lunatica")
             .compile()
             .expect("Windows resources");
     }

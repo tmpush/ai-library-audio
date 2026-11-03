@@ -1,4 +1,4 @@
-Книжная мастерская 0.3.1 — macOS 14+, Apple Silicon (M1 и новее)
+Lunatica 0.3.1 — macOS 14+, Apple Silicon (M1 и новее)
 
 Откройте PKG: программа устанавливается в /Applications.
 Python, Qwen3-TTS и FFmpeg входят в пакет. Homebrew на компьютере пользователя не нужен.

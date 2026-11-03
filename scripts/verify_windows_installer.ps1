@@ -14,7 +14,7 @@ if ($p.ExitCode -ne 0) { throw "Install failed: $($p.ExitCode)" }
 foreach ($item in @('local-books-order.exe','engine/books-engine.exe','unins000.exe')) {
     if (!(Test-Path -LiteralPath (Join-Path $target $item))) { throw "Missing installed file: $item" }
 }
-$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Книжная мастерская.lnk'
+$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Lunatica.lnk'
 if (!(Test-Path -LiteralPath $shortcut)) { throw 'Start menu shortcut was not created' }
 $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
 if ($link.TargetPath -ne (Join-Path $target 'local-books-order.exe')) { throw 'Shortcut points to the wrong executable' }
