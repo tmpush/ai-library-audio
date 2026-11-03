@@ -1,7 +1,7 @@
 #ifndef ProjectRoot
   #error ProjectRoot must be supplied
 #endif
-#define AppVersion "0.3.1"
+#define AppVersion "0.3.2"
 [Setup]
 AppId={{27A6264D-1716-4417-ACDC-AFB52EAEE69D}
 AppName=Lunatica

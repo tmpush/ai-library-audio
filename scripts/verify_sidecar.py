@@ -43,6 +43,12 @@ with tempfile.TemporaryDirectory(prefix='lbo-sidecar-check-') as directory:
         client=httpx.Client(base_url=f"http://127.0.0.1:{ready['port']}",headers={'Authorization':'Bearer '+token})
         assert client.get('/projects').status_code==200
         assert httpx.get(str(client.base_url)+'/projects').status_code==401
+        narrators = [v for v in client.get('/voices').json() if v.get('bundled')]
+        assert len(narrators) == 4, 'Expected four built-in narrators in a clean install'
+        for voice in narrators:
+            reply = client.get(f"/voices/{voice['id']}/playback")
+            reply.raise_for_status()
+            assert Path(reply.json()['files'][0]).is_file()
         sample=root/'samples/night-keeper.fb2'
         response=client.post('/import',files={'file':(sample.name,sample.read_bytes())})
         assert response.status_code==200,response.text
@@ -67,7 +73,7 @@ with tempfile.TemporaryDirectory(prefix='lbo-sidecar-check-') as directory:
         process.stdin.write('shutdown\n');process.stdin.flush()
         process.wait(timeout=15)
         assert process.returncode==0,errors
-        report={'platform':platform.platform(),'executable_bytes':executable.stat().st_size,'startup_seconds':round(startup,3),'checks':['ready handshake','authenticated projects','unauthenticated denied','FB2/EPUB/PDF import','Russian normalization','cover conversion','English language detection data','graceful shutdown'],'exit_code':process.returncode}
+        report={'platform':platform.platform(),'executable_bytes':executable.stat().st_size,'startup_seconds':round(startup,3),'checks':['ready handshake','authenticated projects','four bundled narrator samples','unauthenticated denied','FB2/EPUB/PDF import','Russian normalization','cover conversion','English language detection data','graceful shutdown'],'exit_code':process.returncode}
         (root/'artifacts').mkdir(exist_ok=True)
         (root/'artifacts/sidecar-check.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
         print(json.dumps(report))

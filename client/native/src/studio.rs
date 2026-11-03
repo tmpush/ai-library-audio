@@ -695,8 +695,11 @@ impl StudioApp {
             .width(ui.available_width() - 12.0)
             .selected_text(self.voice_name())
             .show_ui(ui, |ui| {
-                for v in list(&self.snapshot["voices"]) {
-                    ui.selectable_value(&mut self.voice, s(&v, "id").into(), s(&v, "name"));
+                let voices = list(&self.snapshot["voices"]);
+                for (bundled, label) in [(true, "Готовые голоса"), (false, "Мои голоса")] {
+                    let group = voices.iter().filter(|v| (v["bundled"] == true) == bundled);
+                    if group.clone().next().is_some() { ui.strong(label); }
+                    for v in group { ui.selectable_value(&mut self.voice, s(v, "id").into(), s(v, "name")); }
                 }
             });
         if old != self.voice {
@@ -1643,14 +1646,17 @@ impl StudioApp {
                 });
             });});
             ui.allocate_ui_with_layout(Vec2::new((width-24.0)*0.45,500.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-                title(ui,"Ваши голоса",24.0);ui.add_space(10.0);
+
                 let mut voices=list(&self.snapshot["voices"]);voices.sort_by_key(|v|s(v,"id")!=self.voice);
-                for voice in voices{ui.push_id(s(&voice,"id"),|ui|{panel(p).show(ui,|ui|{ui.set_width(ui.available_width());
-                    ui.label(RichText::new(s(&voice,"name")).size(18.0).strong());hint(ui,p,format!("{} секунд",voice["duration"].as_f64().unwrap_or(0.0).round()));
+                for (bundled, label) in [(true, "Готовые голоса"), (false, "Мои голоса")] {
+                let group=voices.iter().filter(|v| (v["bundled"] == true) == bundled);
+                if group.clone().next().is_some(){title(ui,label,24.0);}
+                for voice in group{ui.push_id(s(&voice,"id"),|ui|{panel(p).show(ui,|ui|{ui.set_width(ui.available_width());
+                    ui.label(RichText::new(s(&voice,"name")).size(18.0).strong());if bundled {hint(ui,p,s(voice,"description"));}hint(ui,p,format!("{} секунд",voice["duration"].as_f64().unwrap_or(0.0).round()));
                     if s(&voice,"id")==self.voice{ui.label(RichText::new("Выбран").color(if self.prefs.dark{p.accent}else{c(0x65438b)}));}
                     else if secondary(ui,if self.book.is_null(){"Выбрать голос"}else{"Использовать для книги"}).clicked(){self.voice=s(&voice,"id").into();self.prefs.default_voice=self.voice.clone();self.prefs.voices.insert(self.prefs.book.clone(),self.voice.clone());self.persist();if !self.book.is_null(){self.navigate(Page::Studio);}}
                     if secondary(ui,"Слушать образец").clicked(){let route=format!("/voices/{}/playback",s(&voice,"id"));self.task("Открываю образец…",Done::Play(s(&voice,"name").into()),move|api|api.get(&route));}
-                });ui.add_space(12.0);});}
+                });ui.add_space(12.0);});}}
                 if !self.book.is_null()&&secondary(ui,"Вернуться к книге").clicked(){self.navigate(Page::Studio);}
             });
         });
@@ -1810,7 +1816,7 @@ impl StudioApp {
             });
         });
         ui.add_space(16.0);
-        panel(p).show(ui,|ui|{ui.set_width(ui.available_width());title(ui,"Lunatica 0.3",25.0);ui.label("Нативный интерфейс Rust / egui. Озвучка — Python / PyTorch / CUDA.");ui.label("Локальная студия аудиокниг");
+        panel(p).show(ui,|ui|{ui.set_width(ui.available_width());title(ui,concat!("Lunatica ",env!("CARGO_PKG_VERSION")),25.0);ui.label("Нативный интерфейс Rust / egui. Озвучка — Python / PyTorch / CUDA.");ui.label("Локальная студия аудиокниг");
             if ui.button("Открыть папку данных и журнал").clicked(){let _=backend::open_folder(&backend::data_dir());}
             hint(ui,p,"Книги и записи голоса хранятся локально. Лицензирование обращается к настроенному серверу.");
         });

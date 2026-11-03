@@ -35,6 +35,7 @@ def inspect_voice(path: Path):
 
 class VoiceLibrary:
     def __init__(self, root: Path):
+        self.bundled = Path(__file__).with_name("narrators")
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
 
@@ -51,11 +52,14 @@ class VoiceLibrary:
         return metadata
 
     def list(self):
-        return [json.loads(p.read_text(encoding="utf-8")) for p in self.root.glob("*/voice.json")]
+        profiles = (path for root in (self.root, self.bundled) for path in sorted(root.glob("*/voice.json")))
+        return [json.loads(path.read_text(encoding="utf-8")) for path in profiles]
 
     def load(self, identifier):
         identifier = str(uuid.UUID(identifier))
         directory = self.root / identifier
+        if not directory.is_dir():
+            directory = self.bundled / identifier
         if not (directory/'reference.wav').is_file() or not (directory/'voice.json').is_file():
             raise ValueError('Профиль голоса не найден. Добавьте образец заново')
         return directory / "reference.wav", json.loads((directory / "voice.json").read_text(encoding="utf-8"))

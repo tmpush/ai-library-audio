@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.3.1'
+VERSION = '0.3.2'
 
 def run(*args):
     subprocess.run([str(a) for a in args], check=True)

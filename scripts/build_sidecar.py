@@ -21,6 +21,8 @@ command=[sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onedir' if
     '--collect-data','langdetect',
     '--collect-submodules','num2words','--distpath',str(root/('build/sidecar-full' if args.onedir else 'build/sidecar')),
     '--workpath',str(root/'build/pyinstaller'),'--specpath',str(root/'build')]
+narrators = root / "client/engine/narrators"
+command += ["--add-data", f"{narrators}:client/engine/narrators"]
 if args.with_tts:
     packages=['qwen_tts','torch','torchaudio','transformers','accelerate','tokenizers',
               'huggingface_hub','soundfile','librosa','onnxruntime','einops','sox','ruaccent']
