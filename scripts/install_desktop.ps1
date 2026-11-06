@@ -24,6 +24,8 @@ if ($LASTEXITCODE -ge 8) { throw "Engine copy failed: robocopy exit $LASTEXITCOD
 $global:LASTEXITCODE = 0
 }
 # A separate icon path prevents Explorer from reusing the old executable icon.
+New-Item -ItemType Directory -Force (Join-Path $target 'licenses') | Out-Null
+Get-ChildItem (Join-Path $projectRoot 'client/native/assets') -File | Where-Object { $_.Name -like '*-OFL.txt' -or $_.Name -like '*-LICENSE.txt' } | Copy-Item -Destination (Join-Path $target 'licenses')
 $shortcutIcon = Join-Path $target 'lunatica-icon.ico'
 Copy-Item -LiteralPath (Join-Path $projectRoot 'client/native/assets/icon.ico') -Destination $shortcutIcon -Force
 $shell = New-Object -ComObject WScript.Shell

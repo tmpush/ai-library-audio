@@ -37,6 +37,7 @@ Source: "{#ProjectRoot}\client\native\assets\icon.ico"; DestDir: "{app}"; DestNa
 Source: "{#ProjectRoot}\build\sidecar-full\books-engine\*"; DestDir: "{app}\engine"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#ProjectRoot}\packaging\windows\readme.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\client\native\assets\*-OFL.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "{#ProjectRoot}\client\native\assets\*-LICENSE.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\Lunatica"; Filename: "{app}\local-books-order.exe"; WorkingDir: "{app}"; IconFilename: "{app}\lunatica-icon.ico"
 Name: "{autodesktop}\Lunatica"; Filename: "{app}\local-books-order.exe"; WorkingDir: "{app}"; IconFilename: "{app}\lunatica-icon.ico"; Tasks: desktopicon

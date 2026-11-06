@@ -33,6 +33,8 @@ def main():
     shutil.copytree(ROOT / 'build/sidecar-full/books-engine', engine, symlinks=True)
     for f in (ROOT / 'client/native/assets').glob('*-OFL.txt'):
         shutil.copy2(f, resources)
+    for f in (ROOT / 'client/native/assets').glob('*-LICENSE.txt'):
+        shutil.copy2(f, resources)
     with (contents / 'Info.plist').open('wb') as f:
         plistlib.dump({
             'CFBundleIdentifier': 'app.localbooks.studio',
