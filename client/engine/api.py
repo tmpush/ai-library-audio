@@ -154,6 +154,10 @@ def create_app(directory: Path, token: str, ui_directory: Path | None = None):
     @app.post('/models/download/cancel')
     def cancel_download():return downloads.cancel()
 
+    @app.post('/settings/espeech')
+    def espeech(body: ModelSettings):
+        return studio.configure_espeech(body.directory)
+
     @app.post('/settings/model')
     def model(body:ModelSettings): return studio.configure(body.directory,body.device,body.backend)
 

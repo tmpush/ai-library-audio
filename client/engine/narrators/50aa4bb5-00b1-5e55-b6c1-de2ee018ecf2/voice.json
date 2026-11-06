@@ -1,0 +1,14 @@
+{
+  "duration": 14.88,
+  "sample_rate": 24000,
+  "channels": 1,
+  "silence_fraction": 0.23521505376344087,
+  "sha256": "917a139a6154122d690cbb2e2a4ffec800bb5f6374f29fdb557bbbba7cf55b22",
+  "id": "50aa4bb5-00b1-5e55-b6c1-de2ee018ecf2",
+  "name": "Grace",
+  "description": "Английский · США · мягкий женский",
+  "language": "en",
+  "bundled": true,
+  "transcript": "The library was quiet that evening. A single lamp stood beside the open book. Before turning the page, I stopped to consider a simple question. What makes a familiar idea seem entirely new when we hear it spoken aloud?",
+  "source": "Qwen3-TTS-12Hz-1.7B-VoiceDesign"
+}

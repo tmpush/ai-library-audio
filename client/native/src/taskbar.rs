@@ -44,3 +44,19 @@ pub fn set_icon(cc: &eframe::CreationContext<'_>) {
 
 #[cfg(not(target_os = "windows"))]
 pub fn set_icon(_cc: &eframe::CreationContext<'_>) {}
+
+#[cfg(target_os = "windows")]
+pub fn set_caption(window: &impl raw_window_handle::HasWindowHandle, background: eframe::egui::Color32, text: eframe::egui::Color32) {
+    use raw_window_handle::RawWindowHandle;
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmSetWindowAttribute(hwnd: isize, attribute: u32, value: *const u32, size: u32) -> i32;
+    }
+    let Ok(handle) = window.window_handle() else { return };
+    let RawWindowHandle::Win32(hwnd) = handle.as_raw() else { return };
+    // DWMWA_CAPTION_COLOR and DWMWA_TEXT_COLOR use Win32 COLORREF byte order.
+    for (attribute, color) in [(35, background), (36, text)] {
+        let rgb = u32::from_le_bytes([color.r(), color.g(), color.b(), 0]);
+        unsafe { DwmSetWindowAttribute(hwnd.hwnd.get(), attribute, &rgb, 4); }
+    }
+}

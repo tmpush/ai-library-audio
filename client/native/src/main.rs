@@ -2,10 +2,12 @@
 mod audio;
 mod backend;
 mod studio;
+mod process_privacy;
 mod taskbar;
 
 use fs2::FileExt;
 fn main() -> eframe::Result {
+    process_privacy::restrict_crash_reports();
     let root = backend::data_dir();
     std::fs::create_dir_all(&root).expect("Application data directory");
     let lock = std::fs::OpenOptions::new()

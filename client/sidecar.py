@@ -6,6 +6,9 @@ import sys
 import threading
 from pathlib import Path
 
+from client.engine.process_privacy import restrict_crash_reports
+restrict_crash_reports()
+
 import uvicorn
 from client.engine.api import create_app
 
@@ -19,7 +22,7 @@ class ReadyServer(uvicorn.Server):
 
 
 def main():
-    token=os.environ.get('BOOKS_LOCAL_TOKEN','')
+    token=os.environ.pop('BOOKS_LOCAL_TOKEN','')
     root=os.environ.get('BOOKS_DATA','')
     if len(token)<32 or not root:
         raise SystemExit('The desktop parent must supply BOOKS_LOCAL_TOKEN and BOOKS_DATA')

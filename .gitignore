@@ -20,6 +20,8 @@ client/ui/src-tauri/gen/
 # Local verification outputs and personal audio
 artifacts/
 *.wav
+!client/engine/narrators/*/reference.wav
+!client/engine/narrators/*/espeech-reference.wav
 *.mp3
 *.m4b
 *.log
@@ -30,3 +32,7 @@ owner-access*
 *private-key*
 
 .venv-chatterbox/
+
+.venv-f5/
+
+.venv-cosy/

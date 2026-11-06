@@ -7,7 +7,7 @@ use std::{
     time::Instant,
 };
 
-pub const SCRIPT: &str = "Сегодня я читаю небольшую историю своим обычным голосом. За окном тихо шумят деревья, а на столе лежит раскрытая книга. Я делаю короткую паузу и продолжаю рассказ спокойно и ясно. Впереди новый день, интересная встреча и дорога к старому маяку.";
+pub const SCRIPT: &str = "Сегодня я читаю своим голосом. В библиотеке тихо. За окном шумят деревья. Я рассказываю эту историю спокойно и ясно.";
 pub fn microphones() -> Vec<String> {
     cpal::default_host()
         .input_devices()
@@ -36,7 +36,7 @@ impl Recording {
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
         let rate = supported.sample_rate().0;
         let channels = supported.channels() as usize;
-        let limit = rate as usize * channels * 30;
+        let limit = rate as usize * channels * 12;
         let samples = Arc::new(Mutex::new(Vec::with_capacity(limit)));
         let error = Arc::new(Mutex::new(None));
         let errors = error.clone();

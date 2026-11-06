@@ -9,9 +9,11 @@ from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 parser=argparse.ArgumentParser(description='Build the native local engine without downloading models')
 parser.add_argument('--with-tts',action='store_true',help='Experimental: include already installed TTS dependencies')
+parser.add_argument('--with-espeech',action='store_true',help='Include the Russian ESpeech/F5 runtime (requires --with-tts)')
 parser.add_argument('--onedir',action='store_true',help='Keep large CUDA libraries beside the executable instead of extracting them on every launch')
 parser.add_argument('--ffmpeg-dir',type=Path,help='Include an existing FFmpeg directory, including its licenses and DLLs')
 args=parser.parse_args()
+if args.with_espeech and not args.with_tts: parser.error('--with-espeech requires --with-tts')
 system,arch=platform.system(),platform.machine().lower()
 targets={('Windows','amd64'):'x86_64-pc-windows-msvc',('Darwin','arm64'):'aarch64-apple-darwin',('Darwin','x86_64'):'x86_64-apple-darwin'}
 target=targets.get((system,arch))
@@ -26,11 +28,13 @@ command += ["--add-data", f"{narrators}:client/engine/narrators"]
 if args.with_tts:
     packages=['qwen_tts','torch','torchaudio','transformers','accelerate','tokenizers',
               'huggingface_hub','soundfile','librosa','onnxruntime','einops','sox','ruaccent']
+    if args.with_espeech: packages += ['f5_tts', 'vocos', 'cached_path', 'ema_pytorch', 'x_transformers', 'torchdiffeq', 'pypinyin', 'rjieba', 'omegaconf']
     if system == 'Windows': packages.append('faster_qwen3_tts')
     missing=[package for package in packages if importlib.util.find_spec(package) is None]
     if missing:raise SystemExit('Install approved TTS dependencies into this build environment first: '+', '.join(missing))
     for package in packages:command+=['--collect-all',package]
     distributions = ['qwen-tts','ruaccent-predictor']
+    if args.with_espeech: distributions += ['f5-tts', 'vocos']
     if system == 'Windows': distributions.append('faster-qwen3-tts')
     for distribution in distributions:
         command+=['--copy-metadata',distribution]

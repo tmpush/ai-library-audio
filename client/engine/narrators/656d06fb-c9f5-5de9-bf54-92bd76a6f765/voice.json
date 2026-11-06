@@ -1,0 +1,14 @@
+{
+  "duration": 15.6,
+  "sample_rate": 24000,
+  "channels": 1,
+  "silence_fraction": 0.20512820512820512,
+  "sha256": "8257fb5fd289588fe2502a2bef32f62b732cd4ae737b198701f1f907d1d961d0",
+  "id": "656d06fb-c9f5-5de9-bf54-92bd76a6f765",
+  "name": "Miles",
+  "description": "Английский · США · низкий мужской",
+  "language": "en",
+  "bundled": true,
+  "transcript": "The library was quiet that evening. A single lamp stood beside the open book. Before turning the page, I stopped to consider a simple question. What makes a familiar idea seem entirely new when we hear it spoken aloud?",
+  "source": "Qwen3-TTS-12Hz-1.7B-VoiceDesign"
+}

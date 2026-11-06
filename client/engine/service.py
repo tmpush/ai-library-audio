@@ -74,7 +74,26 @@ class Studio:
                     digest.update(chunk)
         return digest.hexdigest()
 
+    def configure_espeech(self, directory):
+        from .espeech import fingerprint
+        path = Path(directory).expanduser().resolve()
+        revision = fingerprint(path)
+        with self.guard:
+            if self.active_job or any(j["status"] == "running" for j in self.queue.summaries()):
+                raise ValueError("Сначала приостановите озвучку")
+            settings = {**self.settings, "espeech_directory": str(path), "espeech_revision": revision}
+            temp = self.settings_path.with_suffix(".tmp")
+            temp.write_text(json.dumps(settings), encoding="utf-8")
+            temp.replace(self.settings_path)
+            self.settings = settings
+        return settings
+
     def verify_model(self, spec):
+        if spec.get("espeech_reference_hash"):
+            from .espeech import fingerprint
+            if fingerprint(spec["espeech_directory"]) != spec["espeech_revision"]:
+                raise ValueError("Файлы ESpeech изменились. Проверьте модель в настройках")
+
         if self.fingerprint(spec['model_directory']) != spec['model_revision']:
             raise ValueError('Файлы модели изменились. Проверьте модель в настройках и создайте новую задачу')
 
@@ -83,7 +102,7 @@ class Studio:
             raise ValueError('Неизвестное устройство')
         path = Path(directory).expanduser().resolve()
         selected = select_backend(device, backend)
-        settings = {'model_directory':str(path),'model_revision':self.fingerprint(path),'device':device,
+        settings = {**self.settings, 'model_directory':str(path),'model_revision':self.fingerprint(path),'device':device,
                     'backend':selected,'engine_revision':'cuda-graphs-0.3.2-v1' if selected=='cuda_graphs' else 'qwen-0.1.1-v2'}
         with self.guard:
             if self.active_job or any(j['status']=='running' for j in self.queue.summaries()):
@@ -126,6 +145,12 @@ class Studio:
                 'text_revision':TEXT_REVISION,'pronunciation_revision':PRONUNCIATION_REVISION,'stress_revision':STRESS_REVISION,'auto_stress_revision':AUTO_REVISION if options.get('auto_stress') else None,'auto_stress':bool(options.get('auto_stress')),'preview':preview,'chapter_index':chapter_index,
                 'voice_id':voice_id,'voice_hash':voice['sha256'],'transcript':voice['transcript'],
                 'language':chapters[0][1].language,'chapters':slices}
+        if self.settings.get("espeech_directory") and any(c[1].language == "ru" for c in chapters):
+            from .espeech import reference_for, REVISION as ESPEECH_REVISION
+            short, transcript = reference_for(reference, voice["transcript"])
+            spec["espeech_transcript"] = transcript
+            spec["espeech_reference_hash"] = hashlib.sha256(short.read_bytes()).hexdigest()
+            spec["espeech_engine_revision"] = ESPEECH_REVISION
         return self.queue.enqueue(texts,spec)
 
     def pronunciation_rules(self):
@@ -221,20 +246,33 @@ class Studio:
         reference, voice = self.voices.load(spec['voice_id'])
         if hashlib.sha256(reference.read_bytes()).hexdigest() != spec['voice_hash']:
             raise ValueError('Образец голоса изменён. Создайте новую задачу')
-        backend = spec.get('backend', 'standard')
-        key = (spec['model_directory'],spec['model_revision'],spec['device'],backend)
+        use_espeech = spec.get("espeech_directory") and spec["language"] == "ru"
+        if use_espeech:
+            from .espeech import ESpeechEngine, reference_for
+            reference, transcript = reference_for(reference, voice["transcript"])
+            if transcript != spec["espeech_transcript"] or hashlib.sha256(reference.read_bytes()).hexdigest() != spec["espeech_reference_hash"]:
+                raise ValueError("Короткий образец ESpeech изменён. Создайте новую задачу")
+            directory, revision, backend = spec["espeech_directory"], spec["espeech_revision"], "espeech"
+        else:
+            transcript = spec["transcript"]
+            directory, revision, backend = spec["model_directory"], spec["model_revision"], spec.get("backend", "standard")
+        key = (directory, revision, spec["device"], backend)
         if key != self.engine_key:
-            self.engine = QwenEngine(Path(spec['model_directory']),spec['device'],backend=backend)
+            self.engine = None
+            self.engine_key = None
+            import gc
+            gc.collect()
+            self.engine = ESpeechEngine(Path(directory), "cpu" if spec["device"] == "mps" else spec["device"]) if use_espeech else QwenEngine(Path(directory), spec["device"], backend=backend)
             self.engine_key = key
         if spec.get('denoise', False):
-            cleaned = reference.parent / ('reference-clean-' + AUDIO_REVISION + '-' + spec['voice_hash'][:16] + '.wav')
+            cleaned = reference.parent / ('reference-clean-' + AUDIO_REVISION + '-' + hashlib.sha256(reference.read_bytes()).hexdigest()[:16] + '.wav')
             if not self.queue.audio_duration(cleaned):
                 reduce_noise(reference, cleaned)
             reference = cleaned
-        if spec.get('auto_stress', False):
+        if spec.get('auto_stress', False) and not use_espeech:
             from .stress import automatic_stress
             text = automatic_stress(text, spec['language'])
-        self.engine.synthesize(text,spec['language'],reference,spec['transcript'],output)
+        self.engine.synthesize(text,spec['language'],reference,transcript,output)
         if spec.get('denoise', False):
             reduce_noise(output, output)
 
