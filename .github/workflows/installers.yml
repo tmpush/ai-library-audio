@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/installers.yml'
       - 'packaging/**'
+      - 'requirements-espeech.txt'
       - 'scripts/build_macos_installer.py'
       - 'scripts/build_windows_installer.ps1'
 permissions:
