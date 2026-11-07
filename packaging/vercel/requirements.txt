@@ -1,0 +1,6 @@
+fastapi>=0.115,<1
+cryptography>=44
+PyJWT>=2.10,<3
+argon2-cffi>=23
+sqlalchemy>=2,<3
+psycopg[binary]>=3,<4
