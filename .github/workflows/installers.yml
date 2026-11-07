@@ -11,7 +11,7 @@ permissions:
   contents: read
 jobs:
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 90
     env:
       MACOSX_DEPLOYMENT_TARGET: '14.0'
@@ -26,13 +26,7 @@ jobs:
           uv pip install --python .venv/bin/python -r requirements-tts-macos.txt
           brew install ffmpeg
       - name: Build native client
-        shell: bash
-        env:
-          LICENSE_URL: ${{ vars.BOOKS_LICENSE_URL }}
-          LICENSE_KEY: ${{ vars.BOOKS_LICENSE_PUBLIC_KEY }}
         run: |
-          export BOOKS_LICENSE_URL="${LICENSE_URL:-$(.venv/bin/python -c 'import json; print(json.load(open("packaging/license-public.json", encoding="utf-8-sig"))["url"])')}"
-          export BOOKS_LICENSE_PUBLIC_KEY="${LICENSE_KEY:-$(.venv/bin/python -c 'import json; print(json.load(open("packaging/license-public.json", encoding="utf-8-sig"))["public_key"])')}"
           cargo build --release --locked --manifest-path client/native/Cargo.toml
       - name: Build engine with portable FFmpeg
         run: |
@@ -64,13 +58,7 @@ jobs:
           uv sync --frozen
           uv pip install --python .venv/Scripts/python.exe -r requirements-tts-windows.lock.txt --torch-backend cu128
       - name: Build native client
-        env:
-          BOOKS_LICENSE_URL: ${{ vars.BOOKS_LICENSE_URL }}
-          BOOKS_LICENSE_PUBLIC_KEY: ${{ vars.BOOKS_LICENSE_PUBLIC_KEY }}
         run: |
-          $config = Get-Content packaging/license-public.json -Raw | ConvertFrom-Json
-          if (!$env:BOOKS_LICENSE_URL) { $env:BOOKS_LICENSE_URL = $config.url }
-          if (!$env:BOOKS_LICENSE_PUBLIC_KEY) { $env:BOOKS_LICENSE_PUBLIC_KEY = $config.public_key }
           cargo build --release --locked --manifest-path client/native/Cargo.toml
           if ($LASTEXITCODE -ne 0) { throw 'Rust build failed' }
       - name: Fetch FFmpeg
