@@ -192,10 +192,34 @@ fn media_slider_style(ui: &mut egui::Ui,p:Palette) {
 // Phosphor regular 2.1.2: locally bundled, no network dependency at runtime.
 fn media_button(ui: &mut egui::Ui, p: Palette, glyph: &str, label: &str, main: bool) -> egui::Response {
     let size=if main{48.0}else{40.0};
-    let response=ui.add_sized([size,size],egui::Button::new(RichText::new(glyph).font(FontId::new(24.0,FontFamily::Name("Phosphor".into()))).color(if main{p.ink}else{p.text})).fill(if main{p.accent}else{Color32::TRANSPARENT}).stroke(Stroke::NONE).corner_radius(if main{24}else{6}));
+    let response=ui.add_sized([size,size],egui::Button::new(RichText::new(glyph).font(FontId::new(24.0,FontFamily::Name("Phosphor".into()))).color(if main && p.bg.r()<128 {p.accent} else {p.text})).fill(Color32::TRANSPARENT).stroke(Stroke::NONE).corner_radius(if main{24}else{6}));
     response.widget_info(||egui::WidgetInfo::labeled(egui::WidgetType::Button,true,label));
     response.on_hover_text(label)
 }
+fn skip_button(ui: &mut egui::Ui, p: Palette, forward: bool) -> egui::Response {
+    let label = if forward { "Вперёд на 15 секунд · Ctrl + →" } else { "Назад на 15 секунд · Ctrl + ←" };
+    let button = media_button(ui, p, "", label, false);
+    let center = button.rect.center();
+    let point = |x, y| center + Vec2::new(x, y);
+    let direction = if forward { 1.0 } else { -1.0 };
+    let stroke = Stroke::new(1.5_f32, p.text);
+    let arc = (0..=40).map(|step| {
+        let angle = -std::f32::consts::FRAC_PI_2 - direction * 5.65 * step as f32 / 40.0;
+        center + Vec2::angled(angle) * 11.5
+    }).collect();
+    let painter = ui.painter();
+    painter.add(egui::Shape::line(arc, stroke));
+    painter.add(egui::Shape::line(vec![
+        point(-2.5 * direction, -14.5), point(direction, -11.5), point(-2.5 * direction, -8.5),
+    ], stroke));
+    // Numerals share the arc's coordinate system, independent of font baseline and scale.
+    painter.add(egui::Shape::line(vec![point(-5.5, -2.0), point(-3.0, -4.0), point(-3.0, 4.0)], stroke));
+    painter.add(egui::Shape::line(vec![point(5.5, -4.0), point(0.8, -4.0), point(0.8, -0.4),
+        point(4.0, -0.4), point(5.5, 0.9), point(5.5, 2.6), point(4.0, 4.0),
+        point(1.7, 4.0), point(0.5, 3.3)], stroke));
+    button
+}
+
 pub struct StudioApp {
     prefs: Preferences,
     palette: Palette,
@@ -1865,8 +1889,8 @@ impl eframe::App for StudioApp {
         egui::TopBottomPanel::bottom("status-player")
             .frame(
                 egui::Frame::new()
-                    .fill(p.surface)
-                    .inner_margin(egui::Margin::symmetric(28, 12)),
+                    .fill(if self.player.is_some() { p.bg } else { p.surface })
+                    .inner_margin(egui::Margin::symmetric(18, 8)),
             )
             .show(ctx, |ui| {
                 if let Some(player)=self.player.as_mut() {
@@ -1880,33 +1904,63 @@ impl eframe::App for StudioApp {
                         if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL,egui::Key::ArrowLeft)){seek=Some(player.position()-15.0);}
                         if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL,egui::Key::ArrowRight)){seek=Some(player.position()+15.0);}
                     }
-                    ui.horizontal(|ui| {
-                        let info_width=(ui.available_width()-500.0).max(120.0);
-                        ui.allocate_ui_with_layout(Vec2::new(info_width,48.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-                            ui.set_width(info_width);
-                            ui.add(egui::Label::new(RichText::new(&player.label).size(15.0).strong()).truncate()).on_hover_text(&player.label);
-                            hint(ui,p,if player.finished(){"Прослушано"}else if player.sink.is_paused(){"На паузе"}else{"Сейчас играет"});
+                    egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0_f32, p.border))
+                        .corner_radius(24).inner_margin(egui::Margin::symmetric(12, 5)).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().button_padding = Vec2::new(3.0, 2.0);
+                            let total = player.duration().max(0.001);
+                            let mut position = player.scrub.unwrap_or_else(|| player.position());
+                            let paused = player.sink.is_paused() || player.finished();
+                            let accent = if p.bg.r() > 128 { c(0x65438b) } else { p.accent };
+                            let play = media_button(ui, p, if paused { "\u{e3d0}" } else { "\u{e39e}" },
+                                if paused { "Воспроизвести · Пробел" } else { "Пауза · Пробел" }, true);
+                            let center = play.rect.center();
+                            ui.painter().circle_stroke(center, 20.0, Stroke::new(2.5_f32, p.border));
+                            let fraction = (position / total).clamp(0.0, 1.0) as f32;
+                            let points = (0..=64).map(|i| {
+                                let angle = std::f32::consts::TAU * (fraction * i as f32 / 64.0 - 0.25);
+                                center + Vec2::angled(angle) * 20.0
+                            }).collect();
+                            ui.painter().add(egui::Shape::line(points, Stroke::new(2.5_f32, accent)));
+                            if play.clicked() {
+                                if let Err(e) = player.toggle() { self.notice = Some((e, true)); }
+                            }
+                            let width = (ui.available_width() * 0.25).clamp(100.0, 260.0);
+                            let label = player.label.strip_suffix(".mp3").unwrap_or(&player.label);
+                            let (context, title) = label.split_once(" — ").filter(|(prefix, _)| prefix.starts_with("Глава "))
+                                .map(|(chapter, rest)| (chapter, rest.split_once(" — ").map_or(rest, |(title, _)| title)))
+                                .unwrap_or((if player.finished() { "Прослушано" } else if paused { "На паузе" } else { "Сейчас играет" }, label));
+                            ui.allocate_ui_with_layout(Vec2::new(width, 40.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                                ui.spacing_mut().item_spacing.y = 1.0;
+                                ui.set_width(width);
+                                ui.add(egui::Label::new(RichText::new(title).size(15.0)).truncate()).on_hover_text(&player.label);
+                                hint(ui, p, context);
+                            });
+                            ui.label(RichText::new(format!("{} / {}", duration(position), duration(total))).size(13.0).color(p.muted));
+                            media_slider_style(ui, p);
+                            ui.spacing_mut().slider_width = (ui.available_width() - 217.0).max(48.0);
+                            let response = ui.add(egui::Slider::new(&mut position, 0.0..=total).show_value(false).trailing_fill(true));
+                            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Slider, true, "Позиция воспроизведения"));
+                            if response.changed() { player.scrub = Some(position); }
+                            if response.drag_stopped() || (response.changed() && !response.dragged()) { seek = player.scrub.take(); }
+                            if skip_button(ui, p, false).clicked() { seek = Some(player.position() - 15.0); }
+                            if skip_button(ui, p, true).clicked() { seek = Some(player.position() + 15.0); }
+                            ui.menu_button("•••", |ui| {
+                                ui.label("Скорость");
+                                ui.horizontal(|ui| {
+                                    for speed in [0.75, 1.0, 1.25, 1.5, 2.0] {
+                                        ui.selectable_value(&mut player.speed, speed, format!("{speed}×"))
+                                            .on_hover_text("При изменении скорости меняется и высота голоса");
+                                    }
+                                });
+                                ui.separator();
+                                ui.label("Громкость");
+                                ui.add(egui::Slider::new(&mut player.volume, 0.0..=1.0).show_value(false));
+                                ui.checkbox(&mut player.muted, "Без звука");
+                            }).response.on_hover_text("Скорость и громкость");
+                            ui.separator();
+                            close = media_button(ui, p, "\u{e4f6}", "Закрыть плеер", false).clicked();
                         });
-                        if media_button(ui,p,"\u{e038}","Назад на 15 секунд · Ctrl + ←",false).clicked(){seek=Some(player.position()-15.0);}
-                        let paused=player.sink.is_paused()||player.finished();
-                        if media_button(ui,p,if paused{"\u{e3d0}"}else{"\u{e39e}"},if paused{"Воспроизвести · Пробел"}else{"Пауза · Пробел"},true).clicked(){if let Err(e)=player.toggle(){self.notice=Some((e,true));}}
-                        if media_button(ui,p,"\u{e036}","Вперёд на 15 секунд · Ctrl + →",false).clicked(){seek=Some(player.position()+15.0);}
-                        ui.add_space(8.0);
-                        egui::ComboBox::from_id_salt("playback-speed").width(66.0).selected_text(format!("{}×",player.speed)).show_ui(ui,|ui|{for speed in [0.75,1.0,1.25,1.5,2.0]{ui.selectable_value(&mut player.speed,speed,format!("{speed}×"));}}).response.on_hover_text("Скорость прослушивания. Высота голоса меняется вместе со скоростью; экспорт сохраняет исходный звук.");
-                        if media_button(ui,p,if player.muted{"\u{e45a}"}else{"\u{e44a}"},if player.muted{"Включить звук"}else{"Выключить звук"},false).clicked(){player.muted=!player.muted;}
-                        ui.scope(|ui|{media_slider_style(ui,p);ui.spacing_mut().slider_width=72.0;let response=ui.add(egui::Slider::new(&mut player.volume,0.0..=1.0).show_value(false));response.widget_info(||egui::WidgetInfo::labeled(egui::WidgetType::Slider,true,"Громкость"));response.on_hover_text("Громкость");});
-                        if media_button(ui,p,"\u{e4f6}","Закрыть плеер",false).clicked(){close=true;}
-                    });
-                    ui.horizontal(|ui|{
-                        media_slider_style(ui,p);
-                        let mut position=player.scrub.unwrap_or_else(||player.position());
-                        ui.label(RichText::new(duration(position)).size(13.0).color(p.muted));
-                        ui.spacing_mut().slider_width=(ui.available_width()-70.0).max(100.0);
-                        let response=ui.add(egui::Slider::new(&mut position,0.0..=player.duration().max(0.001)).show_value(false).trailing_fill(true));
-                        response.widget_info(||egui::WidgetInfo::labeled(egui::WidgetType::Slider,true,"Позиция воспроизведения"));
-                        if response.changed(){player.scrub=Some(position);}
-                        if response.drag_stopped() || (response.changed() && !response.dragged()) {seek=player.scrub.take();}
-                        ui.label(RichText::new(duration(player.duration())).size(13.0).color(p.muted));
                     });
                     if let Some(seconds)=seek {if let Err(e)=player.seek(seconds){self.notice=Some((e,true));}}
                     if close {self.player=None;}
