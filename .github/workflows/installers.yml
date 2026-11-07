@@ -24,6 +24,8 @@ jobs:
         run: |
           uv sync --frozen
           uv pip install --python .venv/bin/python -r requirements-tts-macos.txt
+          uv pip install --python .venv/bin/python -r requirements-espeech.txt
+          uv pip install --python .venv/bin/python --no-deps f5-tts==1.1.22
           brew install ffmpeg
       - name: Build native client
         run: |
@@ -34,7 +36,7 @@ jobs:
           cp "$(which ffmpeg)" build/ffmpeg-runtime/ffmpeg
           cp "$(brew --prefix ffmpeg)/.brew/ffmpeg.rb" build/ffmpeg-runtime/homebrew-formula.rb
           curl --fail --location https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/COPYING.GPLv3 -o build/ffmpeg-runtime/COPYING.GPLv3
-          .venv/bin/python scripts/build_sidecar.py --with-tts --onedir --ffmpeg-dir build/ffmpeg-runtime
+          .venv/bin/python scripts/build_sidecar.py --with-tts --with-espeech --onedir --ffmpeg-dir build/ffmpeg-runtime
       - name: Package and verify relocated engine
         run: .venv/bin/python scripts/build_macos_installer.py
       - uses: actions/upload-artifact@v4
@@ -57,6 +59,8 @@ jobs:
         run: |
           uv sync --frozen
           uv pip install --python .venv/Scripts/python.exe -r requirements-tts-windows.lock.txt --torch-backend cu128
+          uv pip install --python .venv/Scripts/python.exe -r requirements-espeech.txt
+          uv pip install --python .venv/Scripts/python.exe --no-deps f5-tts==1.1.22
       - name: Build native client
         run: |
           cargo build --release --locked --manifest-path client/native/Cargo.toml
@@ -73,7 +77,7 @@ jobs:
           Copy-Item "$source/LICENSE" build/ffmpeg-runtime/
           Copy-Item "$source/README.txt" build/ffmpeg-runtime/
       - name: Build full engine
-        run: .venv/Scripts/python.exe scripts/build_sidecar.py --with-tts --onedir --ffmpeg-dir build/ffmpeg-runtime
+        run: .venv/Scripts/python.exe scripts/build_sidecar.py --with-tts --with-espeech --onedir --ffmpeg-dir build/ffmpeg-runtime
       - name: Verify frozen engine
         run: .venv/Scripts/python.exe scripts/verify_sidecar.py --executable build/sidecar-full/books-engine/books-engine.exe
       - name: Build installer

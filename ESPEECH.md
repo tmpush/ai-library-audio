@@ -28,4 +28,4 @@
 .venv-f5/Scripts/python.exe scripts/build_sidecar.py --with-tts --with-espeech --onedir --ffmpeg-dir build/ffmpeg-runtime
 ```
 
-Флаг `--with-espeech` добавляет F5/Vocos и их данные в движок, веса модели в него не включает. Старый CI пока собирает Qwen: до выпуска установщиков необходимо перевести CI на совместимый набор зависимостей с ESpeech и проверить обе платформы. Нельзя просто смешивать lock-файл старого Gradio 3 и новые требования F5/Gradio 6.
+Флаг `--with-espeech` добавляет F5/Vocos и их данные в движок, веса модели в него не включает. CI устанавливает зависимости ESpeech отдельно и включает этот флаг при сборке Windows и macOS.
