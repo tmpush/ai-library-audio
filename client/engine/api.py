@@ -38,6 +38,7 @@ class Activate(BaseModel):
     key: str = Field(min_length=20,max_length=100)
 
 class Render(BaseModel):
+    model: str = Field(default="auto", pattern="^(auto|espeech|qwen)$")
     preview: bool = False
     denoise: bool = True
     voice_id: str
@@ -156,7 +157,7 @@ def create_app(directory: Path, token: str, ui_directory: Path | None = None):
 
     @app.post('/settings/espeech')
     def espeech(body: ModelSettings):
-        return studio.configure_espeech(body.directory)
+        return studio.configure_espeech(body.directory, body.device if "device" in body.model_fields_set else None)
 
     @app.post('/settings/model')
     def model(body:ModelSettings): return studio.configure(body.directory,body.device,body.backend)
@@ -215,8 +216,8 @@ def create_app(directory: Path, token: str, ui_directory: Path | None = None):
 
     @app.post('/projects/{identifier}/render')
     def render(identifier:str,body:Render):
-        options=body.model_dump(exclude={'voice_id','chapter','denoise','preview'})
-        return {'id':studio.enqueue(identifier,body.voice_id,options,body.chapter,denoise=body.denoise,preview=body.preview)}
+        options=body.model_dump(exclude={'voice_id','chapter','denoise','preview','model'})
+        return {'id':studio.enqueue(identifier,body.voice_id,options,body.chapter,denoise=body.denoise,preview=body.preview,model=body.model)}
 
     @app.post('/jobs/{identifier}/pause')
     def pause(identifier:str):

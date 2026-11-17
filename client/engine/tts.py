@@ -65,9 +65,12 @@ class QwenEngine:
         if language not in LANGUAGES:
             raise ValueError("Модель не поддерживает этот язык")
         prompt = self.prepare_voice(reference, transcript)
-        if self.backend == 'cuda_graphs':
+        from .cuda_graphs import CudaGraphSynthesizer, MAX_CONTEXT, MAX_TOKENS
+        ref_codes = prompt[0].ref_code
+        # Long reference audio can consume the fixed CUDA graph context.
+        fits_graph = ref_codes is None or len(ref_codes) < MAX_CONTEXT - MAX_TOKENS
+        if self.backend == 'cuda_graphs' and fits_graph:
             if self.fast is None:
-                from .cuda_graphs import CudaGraphSynthesizer
                 self.fast = CudaGraphSynthesizer(self.model)
             wavs, rate = self.fast.synthesize(text, LANGUAGES[language], prompt)
         else:

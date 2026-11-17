@@ -32,7 +32,9 @@ class RenderQueue:
         # spec must include immutable model revision, voice content hash and all synthesis settings.
         if not texts or not all(t.strip() for t in texts):
             raise ValueError("Нет текста для синтеза")
-        if not all(spec.get(k) for k in ("model_revision", "voice_hash", "language")):
+        if not (spec.get("model_revision") or spec.get("espeech_revision")) or not all(
+            spec.get(key) for key in ("voice_hash", "language")
+        ):
             raise ValueError("Не указаны модель, отпечаток голоса или язык")
         identifier = str(uuid.uuid4())
         canonical = json.dumps(spec, sort_keys=True, ensure_ascii=False)
@@ -50,6 +52,8 @@ class RenderQueue:
         for chapter in spec.get('chapters', []):
             if chapter['start'] <= position < chapter['end']:
                 result['language'] = chapter['language']
+                if 'model' in chapter:
+                    result['model'] = chapter['model']
                 break
         return result
 

@@ -74,14 +74,17 @@ class Studio:
                     digest.update(chunk)
         return digest.hexdigest()
 
-    def configure_espeech(self, directory):
+    def configure_espeech(self, directory, device=None):
         from .espeech import fingerprint
         path = Path(directory).expanduser().resolve()
+        if device not in (None, "cpu", "cuda:0", "mps"):
+            raise ValueError("Неизвестное устройство")
         revision = fingerprint(path)
         with self.guard:
             if self.active_job or any(j["status"] == "running" for j in self.queue.summaries()):
                 raise ValueError("Сначала приостановите озвучку")
-            settings = {**self.settings, "espeech_directory": str(path), "espeech_revision": revision}
+            settings = {**self.settings, "espeech_directory": str(path), "espeech_revision": revision,
+                        "device": device or self.settings.get("device", "cpu")}
             temp = self.settings_path.with_suffix(".tmp")
             temp.write_text(json.dumps(settings), encoding="utf-8")
             temp.replace(self.settings_path)
@@ -89,13 +92,20 @@ class Studio:
         return settings
 
     def verify_model(self, spec):
-        if spec.get("espeech_reference_hash"):
+        chapters = spec.get("chapters") or [spec]
+        engines = {self.render_model({**spec, **chapter}) for chapter in chapters}
+        if "espeech" in engines:
             from .espeech import fingerprint
             if fingerprint(spec["espeech_directory"]) != spec["espeech_revision"]:
                 raise ValueError("Файлы ESpeech изменились. Проверьте модель в настройках")
+        if "qwen" in engines and self.fingerprint(spec["model_directory"]) != spec["model_revision"]:
+            raise ValueError("Файлы Qwen изменились. Проверьте модель в настройках и создайте новую задачу")
 
-        if self.fingerprint(spec['model_directory']) != spec['model_revision']:
-            raise ValueError('Файлы модели изменились. Проверьте модель в настройках и создайте новую задачу')
+    @staticmethod
+    def render_model(spec):
+        return spec.get("model") or (
+            "espeech" if spec.get("espeech_directory") and spec["language"] == "ru" else "qwen"
+        )
 
     def configure(self, directory: str, device: str, backend: str = 'auto'):
         if device not in {'cpu','cuda:0','mps'}:
@@ -113,14 +123,12 @@ class Studio:
             temp.replace(self.settings_path)
         return settings
 
-    def enqueue(self, identifier, voice_id, options, chapter_index=None, denoise=True, preview=False):
+    def enqueue(self, identifier, voice_id, options, chapter_index=None, denoise=True, preview=False, model="auto"):
         self.license().authorize()
-        if not self.settings.get('model_directory'):
-            raise ValueError('Укажите локальную папку модели в настройках')
         reference, voice = self.voices.load(voice_id)
         book = self.library.load(identifier)
-        book.preparation=options
-        self.library.save(book,identifier)
+        preparation = options
+        spec_settings = {"device": "cpu", **self.settings}
         chapters = list(enumerate(book.chapters))
         if chapter_index is not None:
             if not 0 <= chapter_index < len(chapters): raise ValueError('Глава не найдена')
@@ -130,27 +138,37 @@ class Studio:
         for index, chapter in chapters:
             if chapter.language not in LANGUAGES:
                 raise ValueError(f'Выберите поддерживаемый язык для главы «{chapter.title}»')
+            selected = self.render_model({**spec_settings, "language": chapter.language,
+                                          "model": None if model == "auto" else model})
+            if selected == "espeech" and chapter.language != "ru":
+                raise ValueError(f'Для главы «{chapter.title}» выберите Qwen. ESpeech озвучивает русский текст.')
+            directory_key = "espeech_directory" if selected == "espeech" else "model_directory"
+            if not spec_settings.get(directory_key):
+                label = "ESpeech" if selected == "espeech" else "Qwen"
+                raise ValueError(f'Укажите папку {label} для главы «{chapter.title}» в настройках.')
             text = prepare_text(spoken_blocks(book,chapter.start,chapter.end), language=chapter.language, **{**options, 'auto_stress': False})
             parts = chunk_text(text)
             if preview:
                 parts = parts[:1]
             if not parts:
                 raise ValueError(f'В главе «{chapter.title}» нет текста для озвучки')
-            slices.append({'title':chapter.title,'start':len(texts),'end':len(texts)+len(parts),'language':chapter.language})
+            slices.append({'title':chapter.title,'start':len(texts),'end':len(texts)+len(parts),'language':chapter.language,'model':selected})
             texts.extend(parts)
             if preview:
                 break
-        spec = {**self.settings,'project_id':identifier,'title':book.title,'author':book.author,
+        spec = {**spec_settings,'project_id':identifier,'title':book.title,'author':book.author,
                 'cover_id':book.cover_id,'denoise':denoise,'audio_revision':AUDIO_REVISION if denoise else 'raw',
                 'text_revision':TEXT_REVISION,'pronunciation_revision':PRONUNCIATION_REVISION,'stress_revision':STRESS_REVISION,'auto_stress_revision':AUTO_REVISION if options.get('auto_stress') else None,'auto_stress':bool(options.get('auto_stress')),'preview':preview,'chapter_index':chapter_index,
                 'voice_id':voice_id,'voice_hash':voice['sha256'],'transcript':voice['transcript'],
                 'language':chapters[0][1].language,'chapters':slices}
-        if self.settings.get("espeech_directory") and any(c[1].language == "ru" for c in chapters):
+        if any(chapter["model"] == "espeech" for chapter in slices):
             from .espeech import reference_for, REVISION as ESPEECH_REVISION
             short, transcript = reference_for(reference, voice["transcript"])
             spec["espeech_transcript"] = transcript
             spec["espeech_reference_hash"] = hashlib.sha256(short.read_bytes()).hexdigest()
             spec["espeech_engine_revision"] = ESPEECH_REVISION
+        book.preparation = preparation
+        self.library.save(book, identifier)
         return self.queue.enqueue(texts,spec)
 
     def pronunciation_rules(self):
@@ -246,7 +264,7 @@ class Studio:
         reference, voice = self.voices.load(spec['voice_id'])
         if hashlib.sha256(reference.read_bytes()).hexdigest() != spec['voice_hash']:
             raise ValueError('Образец голоса изменён. Создайте новую задачу')
-        use_espeech = spec.get("espeech_directory") and spec["language"] == "ru"
+        use_espeech = self.render_model(spec) == "espeech"
         if use_espeech:
             from .espeech import ESpeechEngine, reference_for
             reference, transcript = reference_for(reference, voice["transcript"])

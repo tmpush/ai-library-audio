@@ -7,6 +7,9 @@ use std::{
 };
 
 pub const SCRIPT: &str = "Сегодня я читаю своим голосом. В библиотеке тихо. За окном шумят деревья. Я рассказываю эту историю спокойно и ясно.";
+pub const LONG_SCRIPT: &str = "Вечером мы подошли к старому вокзалу. На платформе стоял всего один фонарь, и в его свете падал редкий снег. Я поставил чемодан на скамью и прислушался. Неужели поезд уже ушёл? Вдруг за поворотом раздался знакомый гудок. Вот и он!\n\nИз вагона вышла моя сестра. «Ты давно ждёшь?» — спросила она. «Минут десять. Расскажи лучше, как ты добралась». Она засмеялась и протянула мне бумажный пакет. Внутри лежал ещё тёплый хлеб.\n\nМы пошли домой через пустую площадь. Снег скрипел под ногами. По дороге мы говорили о всяких мелочах: о новой работе, о соседском коте, о том, что приготовить на завтрак. У самых дверей сестра вдруг остановилась. «Смотри, — сказала она тихо. — В окне горит свет. Нас ждали».";
+pub const SHORT_RECORDING_SECONDS: u64 = 12;
+pub const LONG_RECORDING_SECONDS: u64 = 60;
 pub fn microphones() -> Vec<String> {
     cpal::default_host()
         .input_devices()
@@ -20,9 +23,10 @@ pub struct Recording {
     rate: u32,
     channels: usize,
     pub started: Instant,
+    pub max_seconds: u64,
 }
 impl Recording {
-    pub fn start(name: &str) -> Result<Self, String> {
+    pub fn start(name: &str, max_seconds: u64) -> Result<Self, String> {
         let host = cpal::default_host();
         let device = if name.is_empty() {
             host.default_input_device()
@@ -35,7 +39,7 @@ impl Recording {
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
         let rate = supported.sample_rate().0;
         let channels = supported.channels() as usize;
-        let limit = rate as usize * channels * 12;
+        let limit = rate as usize * channels * max_seconds as usize;
         let samples = Arc::new(Mutex::new(Vec::with_capacity(limit)));
         let error = Arc::new(Mutex::new(None));
         let errors = error.clone();
@@ -90,6 +94,7 @@ impl Recording {
             rate,
             channels,
             started: Instant::now(),
+            max_seconds,
         })
     }
     pub fn level(&self) -> f32 {
@@ -122,7 +127,7 @@ pub fn encode_voice(mono: &[f32], rate: u32) -> Result<Vec<u8>, String> {
     if rate == 0 || mono.len() < rate as usize * 10 {
         return Err("Запись короче 10 секунд. Прочитайте весь текст ещё раз".into());
     }
-    let length = ((mono.len() as u64 * 24000 / rate as u64) as usize).min(720000);
+    let length = (mono.len() as u64 * 24000 / rate as u64) as usize;
     let mut cursor = Cursor::new(Vec::new());
     {
         let mut wav = hound::WavWriter::new(
@@ -301,15 +306,17 @@ mod tests {
     }
     #[test]
     fn recording_converts_to_voice_library_contract() {
-        let samples: Vec<f32> = (0..48000 * 12)
+        let samples: Vec<f32> = (0..48000 * super::LONG_RECORDING_SECONDS as usize)
             .map(|i| (i as f32 * 0.02).sin() * 0.2)
             .collect();
-        let bytes = super::encode_voice(&samples, 48000).unwrap();
-        let wav = hound::WavReader::new(std::io::Cursor::new(bytes)).unwrap();
-        assert_eq!(wav.spec().sample_rate, 24000);
-        assert_eq!(wav.spec().channels, 1);
-        assert_eq!(wav.duration(), 24000 * 12);
-        assert_eq!(wav.spec().bits_per_sample, 16);
+        for seconds in [super::SHORT_RECORDING_SECONDS, super::LONG_RECORDING_SECONDS] {
+            let bytes = super::encode_voice(&samples[..48000 * seconds as usize], 48000).unwrap();
+            let wav = hound::WavReader::new(std::io::Cursor::new(bytes)).unwrap();
+            assert_eq!(wav.spec().sample_rate, 24000);
+            assert_eq!(wav.spec().channels, 1);
+            assert_eq!(wav.duration(), 24000 * seconds as u32);
+            assert_eq!(wav.spec().bits_per_sample, 16);
+        }
         assert!(super::encode_voice(&samples[..100], 48000).is_err());
     }
 }

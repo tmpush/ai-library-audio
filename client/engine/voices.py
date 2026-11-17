@@ -16,8 +16,8 @@ def inspect_voice(path: Path):
             if rate < 16000 or channels not in (1, 2) or width != 2:
                 raise ValueError("Нужен WAV PCM 16-bit, моно или стерео, частота не ниже 16 кГц")
             duration = frames / rate
-            if not 10 <= duration <= 30:
-                raise ValueError("Длительность образца должна быть от 10 до 30 секунд")
+            if not 10 <= duration <= 60:
+                raise ValueError("Длительность образца должна быть от 10 до 60 секунд")
             data = wav.readframes(frames)
             if len(data) != frames * channels * width:
                 raise ValueError("WAV обрезан")

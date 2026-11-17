@@ -6,7 +6,7 @@ import re
 import sys
 from pathlib import Path
 
-REVISION = "espeech-rlv2-accent-v1"
+REVISION = "espeech-rlv2-sequential-v3"
 FILES = ("espeech_tts_rlv2.pt", "vocab.txt", "vocos/config.yaml", "vocos/pytorch_model.bin")
 
 
@@ -35,8 +35,8 @@ def reference_for(path, transcript):
         path = path.parent / "espeech-reference.wav"
         transcript = data["transcript"]
     info = sf.info(path)
-    if not 3 <= info.duration <= 12:
-        raise ValueError("Для ESpeech нужен образец от 3 до 12 секунд с точной расшифровкой. Запишите новый голос")
+    if not 3 <= info.duration <= 60:
+        raise ValueError("Для ESpeech нужен образец от 3 до 60 секунд с точной расшифровкой")
     if not transcript.strip():
         raise ValueError("Для ESpeech нужна точная расшифровка образца")
     return path, transcript
@@ -70,10 +70,29 @@ class ESpeechEngine:
         audio, rate = sf.read(reference, dtype="float32", always_2d=True)
         tensor = torch.from_numpy(audio.mean(axis=1).copy()).unsqueeze(0)
         # Array input avoids TorchCodec and preserves the exact reference/transcript pair.
+        import numpy as np
+        from .books import chunk_text
+
+        marked_reference = marked_text(transcript)
+        reference_seconds = tensor.shape[-1] / rate
+        # F5 estimates output duration from the ratio of UTF-8 text lengths.
+        bytes_per_second = len(marked_reference.encode("utf-8")) / reference_seconds
+        limit = max(20, min(len(text), int(8 * bytes_per_second / 3)))
+        pieces = []
         with contextlib.redirect_stdout(sys.stderr):
-            wav, rate, _ = next(infer_batch_process(
-                (tensor, rate), marked_text(transcript), [marked_text(text)],
-                self.model, self.vocoder, device=self.device, nfe_step=48))
-        if wav is None or len(wav) == 0:
-            raise ValueError("ESpeech не создала аудио")
-        sf.write(output, wav, rate, subtype="PCM_16")
+            for part in chunk_text(text, limit):
+                marked_part = marked_text(part)
+                fix_duration = None
+                if reference_seconds > 12:
+                    # Keep reference plus output inside the model's positional window.
+                    part_bytes = len(marked_part.encode("utf-8"))
+                    speed = 0.3 if part_bytes < 10 else 1.0
+                    estimated_seconds = part_bytes / (bytes_per_second * speed)
+                    fix_duration = reference_seconds + min(16, estimated_seconds)
+                wav, output_rate, _ = next(infer_batch_process(
+                    (tensor, rate), marked_reference, [marked_part],
+                    self.model, self.vocoder, device=self.device, nfe_step=48, fix_duration=fix_duration))
+                if wav is None or len(wav) == 0:
+                    raise ValueError("ESpeech не создала аудио")
+                pieces.append(wav)
+        sf.write(output, np.concatenate(pieces), output_rate, subtype="PCM_16")

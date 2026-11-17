@@ -23,8 +23,10 @@ def test_reference_rejects_long_or_changed_pair(tmp_path):
         with wave.open(str(path), 'wb') as stream:
             stream.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
             stream.writeframes(b'\0\0' * (16000 * seconds))
-    write(ref, 20)
-    with pytest.raises(ValueError, match='12 секунд'):
+    write(ref, 60)
+    assert espeech.reference_for(ref, 'Текст') == (ref, 'Текст')
+    write(ref, 61)
+    with pytest.raises(ValueError, match='60 секунд'):
         espeech.reference_for(ref, 'Текст')
     short = tmp_path / 'espeech-reference.wav'
     write(short, 5)
@@ -70,3 +72,25 @@ def test_language_dispatch_and_frozen_reference(tmp_path, monkeypatch):
     legacy = {k: v for k, v in spec.items() if not k.startswith('espeech_')}
     studio.render('Проба', legacy, tmp_path / 'out.wav')
     assert calls[-1] == ('ru', 'Точный текст')
+
+
+@pytest.mark.parametrize("model", ["auto", "espeech"])
+def test_russian_job_can_run_with_espeech_only(tmp_path, monkeypatch, model):
+    studio = Studio(tmp_path, Library(tmp_path))
+    studio.license_client = SimpleNamespace(authorize=lambda: None)
+    studio.settings = {"espeech_directory": "espeech", "espeech_revision": "e1"}
+    reference = tmp_path / "reference.wav"
+    reference.write_bytes(b"voice")
+    studio.voices.load = lambda _: (reference, {
+        "sha256": hashlib.sha256(b"voice").hexdigest(), "transcript": "Проба",
+    })
+    monkeypatch.setattr(espeech, "reference_for", lambda path, text: (path, text))
+    monkeypatch.setattr(espeech, "fingerprint", lambda _: "e1")
+    identifier = studio.library.save(import_book(__import__("pathlib").Path("samples/night-keeper.fb2")))
+    job = studio.enqueue(identifier, "voice", {}, model=model)
+    spec = json.loads(studio.queue.state(job)["spec"])
+    assert spec["device"] == "cpu"
+    assert {chapter["model"] for chapter in spec["chapters"]} == {"espeech"}
+    studio.verify_model(spec)
+    with pytest.raises(ValueError, match="Qwen"):
+        studio.enqueue(identifier, "voice", {}, model="qwen")

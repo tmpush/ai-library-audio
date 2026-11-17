@@ -18,6 +18,33 @@ fn s<'a>(v: &'a Value, key: &str) -> &'a str {
 fn list(v: &Value) -> Vec<Value> {
     v.as_array().cloned().unwrap_or_default()
 }
+fn resolve_model_directory(input: &str, name: &str, marker: &str) -> Result<String, String> {
+    let path = PathBuf::from(input.trim().trim_matches('"'));
+    if path.as_os_str().is_empty() {
+        return Err(format!("Выберите папку {name} из распакованного архива моделей"));
+    }
+    if path.is_file() {
+        return Err("Сначала распакуйте Lunatica-Models-RU-EN.zip и выберите папку".into());
+    }
+    let direct = path.join(name);
+    let wrapped = path.join("Lunatica-Models-RU-EN").join(name);
+    let parent = path.parent();
+    let inner = matches!((name, path.file_name().and_then(|n| n.to_str())),
+        ("Qwen", Some("speech_tokenizer")) | ("ESpeech", Some("vocos")));
+    let mut candidates = vec![path.as_path(), direct.as_path(), wrapped.as_path()];
+    if inner {
+        if let Some(parent) = parent {
+            candidates.insert(0, parent);
+        }
+    }
+    for candidate in candidates {
+        if candidate.join(marker).is_file() {
+            return Ok(candidate.to_string_lossy().into_owned());
+        }
+    }
+    Err(format!("Файл {marker} не найден. Выберите папку {name} или общую папку с распакованными моделями."))
+}
+
 fn duration(seconds: f64) -> String {
     let n = seconds as u64;
     if n >= 3600 {
@@ -29,6 +56,20 @@ fn duration(seconds: f64) -> String {
 fn serif(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("Lora".into()))
 }
+fn device_picker(ui: &mut egui::Ui, id: &str, device: &mut String) {
+    const CPU: &str = "Процессор (CPU)";
+    const CUDA: &str = "Видеокарта NVIDIA (CUDA)";
+    ui.label("Вычисления");
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(if device == "cuda:0" { CUDA } else { CPU })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(device, "cpu".into(), CPU);
+            if cfg!(target_os = "windows") {
+                ui.selectable_value(device, "cuda:0".into(), CUDA);
+            }
+        });
+}
+
 fn title(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
     ui.label(RichText::new(text).font(serif(size)));
 }
@@ -263,12 +304,14 @@ pub struct StudioApp {
     player: Option<Player>,
     recording: Option<Recording>,
     recorded: Option<Vec<u8>>,
+    long_voice_recording: bool,
     microphones: Vec<String>,
     microphone: String,
     voice_name: String,
     voice_filter: String,
     transcript: String,
     license_key: String,
+    render_model: String,
     model_dir: String,
     espeech_dir: String,
     device: String,
@@ -367,15 +410,17 @@ impl StudioApp {
             player: None,
             recording: None,
             recorded: None,
+            long_voice_recording: false,
             microphones: vec![],
             microphone: String::new(),
             voice_filter: "personal".into(),
             voice_name: "Мой голос".into(),
             transcript: audio::SCRIPT.into(),
             license_key: String::new(),
+            render_model: "auto".into(),
             model_dir: String::new(),
             espeech_dir: String::new(),
-            device: if cfg!(target_os="windows") {"cuda:0"} else {"cpu"}.into(),
+            device: "cpu".into(),
             backend: "auto".into(),
             catalog: None,
             download: Value::Null,
@@ -543,11 +588,20 @@ impl StudioApp {
                     self.polling = false;
                     match result {
                         Ok(value) => {
-                            if self.model_dir.is_empty() {
-                                self.model_dir = s(&value["settings"], "model_directory").into();
-                                self.espeech_dir = s(&value["settings"], "espeech_directory").into();
-                                self.device = s(&value["settings"], "device").into();
-                                self.backend = s(&value["settings"], "backend").into();
+                            if self.snapshot.get("settings").is_none() {
+                                let settings = &value["settings"];
+                                if self.model_dir.is_empty() {
+                                    self.model_dir = s(settings, "model_directory").into();
+                                }
+                                if self.espeech_dir.is_empty() {
+                                    self.espeech_dir = s(settings, "espeech_directory").into();
+                                }
+                                if let Some(device) = settings["device"].as_str().filter(|s| !s.is_empty()) {
+                                    self.device = device.into();
+                                }
+                                if let Some(backend) = settings["backend"].as_str().filter(|s| !s.is_empty()) {
+                                    self.backend = backend.into();
+                                }
                             }
                             if self.voice.is_empty() {
                                 let voices = list(&value["voices"]);
@@ -791,6 +845,7 @@ impl StudioApp {
         match self.options() {
             Err(e) => self.notice = Some((e, true)),
             Ok(mut options) => {
+                options["model"] = json!(self.render_model);
                 options["voice_id"] = json!(self.voice);
                 options["denoise"] = json!(self.prefs.denoise);
                 options["preview"] = json!(preview);
@@ -1371,6 +1426,15 @@ impl StudioApp {
                             }
                         });
                         self.voice_select(ui);
+                        ui.label("Модель озвучки");
+                        let models = [("auto", "Автовыбор по языку"), ("espeech", "ESpeech"), ("qwen", "Qwen")];
+                        egui::ComboBox::from_id_salt("render-model")
+                            .selected_text(models.iter().find(|(id, _)| *id == self.render_model).map(|(_, label)| *label).unwrap_or("Автовыбор по языку"))
+                            .show_ui(ui, |ui| {
+                                for (id, label) in models {
+                                    ui.selectable_value(&mut self.render_model, id.into(), label);
+                                }
+                            });
                         if ui.button("Голоса и запись…").clicked(){self.navigate(Page::Voices);}
                         ui.add_space(4.0);
                         let enabled=!self.voice.is_empty() && self.dirty.is_empty() && !self.preview_wait;
@@ -1632,19 +1696,34 @@ impl StudioApp {
         let width = ui.available_width();
         ui.horizontal_top(|ui|{
             ui.allocate_ui_with_layout(Vec2::new((width-24.0)*0.55,600.0),egui::Layout::top_down(egui::Align::Min),|ui|{panel(p).show(ui,|ui|{ui.set_width(ui.available_width());
-                title(ui,"Запишите свой голос",24.0);hint(ui,p,"Спокойно, обычным голосом. 10–12 секунд, без музыки и долгих пауз.");ui.add_space(12.0);
-                ui.label(RichText::new(audio::SCRIPT).font(serif(20.0)));ui.add_space(18.0);
+                title(ui, "Запишите свой голос", 24.0);
+                ui.add_enabled_ui(self.recording.is_none(), |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.selectable_value(&mut self.long_voice_recording, false, "До 12 секунд");
+                        ui.selectable_value(&mut self.long_voice_recording, true, "До минуты");
+                    });
+                });
+                let (script, limit) = if self.long_voice_recording {
+                    hint(ui, p, "Подходит для обоих движков. ESpeech работает медленнее с длинным образцом. Если остановитесь раньше, поправьте текст записи.");
+                    (audio::LONG_SCRIPT, audio::LONG_RECORDING_SECONDS)
+                } else {
+                    hint(ui, p, "Для ESpeech рекомендуем 10–12 секунд чистой речи. Короткая запись подходит и для Qwen.");
+                    (audio::SCRIPT, audio::SHORT_RECORDING_SECONDS)
+                };
+                ui.add_space(12.0);
+                ui.label(RichText::new(script).font(serif(if self.long_voice_recording { 17.0 } else { 20.0 })));
+                ui.add_space(18.0);
                 if self.microphones.is_empty(){self.microphones=audio::microphones();}
                 ui.add_enabled_ui(self.recording.is_none(),|ui|{egui::ComboBox::from_id_salt("microphone").width(ui.available_width()-12.0).selected_text(if self.microphone.is_empty(){"Системный микрофон"}else{&self.microphone}).show_ui(ui,|ui|{ui.selectable_value(&mut self.microphone,String::new(),"По умолчанию");for name in &self.microphones{ui.selectable_value(&mut self.microphone,name.clone(),name);}});});
                 if let Some(rec)=&self.recording {
-                    ui.label(RichText::new(format!("ИДЁТ ЗАПИСЬ · {} / 0:12",duration(rec.started.elapsed().as_secs_f64()))).color(if self.prefs.dark{c(0xffb5ad)}else{c(0x9d3028)}));
+                    ui.label(RichText::new(format!("ИДЁТ ЗАПИСЬ · {} / {}", duration(rec.started.elapsed().as_secs_f64().min(rec.max_seconds as f64)), duration(rec.max_seconds as f64))).color(if self.prefs.dark{c(0xffb5ad)}else{c(0x9d3028)}));
                     ui.add(egui::ProgressBar::new((rec.level()*5.0).min(1.0)).text("Уровень микрофона"));
                     if primary(ui,p,"Остановить запись").clicked(){self.finish_recording();}
                     if ui.button("Отменить запись").clicked(){self.recording=None;}
                 }else {
                     if primary(ui,p,if self.recorded.is_some(){"Записать заново"}else{"Начать запись"}).clicked(){
-                        self.player=None;self.recorded=None;self.transcript=audio::SCRIPT.into();
-                        match Recording::start(&self.microphone){Ok(rec)=>self.recording=Some(rec),Err(e)=>self.notice=Some((e,true))}
+                        self.player=None;self.recorded=None;self.transcript=script.into();
+                        match Recording::start(&self.microphone, limit){Ok(rec)=>self.recording=Some(rec),Err(e)=>self.notice=Some((e,true))}
                     }
                     hint(ui,p,"Микрофон включается только по кнопке. При уходе с экрана запись остановится.");
                 }
@@ -1654,7 +1733,7 @@ impl StudioApp {
                     if primary(ui,p,"Сохранить и использовать голос").clicked(){let bytes=self.recorded.clone().unwrap();let name=self.voice_name.clone();let transcript=self.transcript.clone();self.task("Сохраняю голос…",Done::Voice,move|api|api.upload("/voices","recording.wav".into(),bytes,vec![("name",name),("transcript",transcript)]));}
                 }
                 ui.add_space(18.0);ui.separator();ui.collapsing("Загрузить готовый WAV",|ui|{
-                    hint(ui,p,"PCM 16-bit, 16 кГц или выше, 10–12 секунд. Впишите именно тот текст, который звучит в файле.");
+                    hint(ui,p,"WAV PCM 16-bit, от 16 кГц, 10–60 секунд. Впишите точный текст файла.");
                     ui.label("Название");ui.text_edit_singleline(&mut self.voice_name);ui.label("Текст записи");ui.add(egui::TextEdit::multiline(&mut self.transcript).desired_rows(4).desired_width(f32::INFINITY));
                     ui.add_enabled_ui(self.recording.is_none(),|ui|{if ui.button("Выбрать WAV и добавить голос…").clicked(){if let Some(path)=rfd::FileDialog::new().add_filter("Запись голоса", &["wav"]).pick_file(){let name=self.voice_name.clone();let transcript=self.transcript.clone();self.task("Добавляю голос…",Done::Voice,move|api|api.upload("/voices",path.file_name().unwrap().to_string_lossy().into(),std::fs::read(&path).map_err(|e|e.to_string())?,vec![("name",name),("transcript",transcript)]));}}});
                 });
@@ -1816,11 +1895,12 @@ impl StudioApp {
         panel(p).show(ui,|ui|{ui.set_width(ui.available_width());
             title(ui,"Озвучка на компьютере",25.0);ui.label("Qwen — английский и другие языки. ESpeech — русский с ударениями.");
             hint(ui,p,"Модель загружается в память при первой озвучке и остаётся доступной до закрытия программы.");
-            ui.label("Папка установленной модели");ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut self.model_dir).desired_width((ui.available_width()-130.0).max(200.0)));if ui.button("Выбрать…").clicked(){if let Some(path)=rfd::FileDialog::new().pick_folder(){self.model_dir=path.to_string_lossy().into();}}});
-            ui.horizontal(|ui|{ui.label("Вычисления");egui::ComboBox::from_id_salt("device").selected_text(if self.device=="cuda:0"{"Видеокарта NVIDIA (CUDA)"}else{"Процессор"}).show_ui(ui,|ui|{if cfg!(target_os="windows") {ui.selectable_value(&mut self.device,"cuda:0".into(),"Видеокарта NVIDIA (CUDA)");}ui.selectable_value(&mut self.device,"cpu".into(),"Процессор");});
+            ui.label("Папка Qwen или общая папка распакованных моделей");ui.horizontal(|ui|{ui.add(egui::TextEdit::singleline(&mut self.model_dir).desired_width((ui.available_width()-130.0).max(200.0)));if ui.button("Выбрать…").clicked(){if let Some(path)=rfd::FileDialog::new().pick_folder(){self.model_dir=path.to_string_lossy().into();}}});
+            ui.horizontal(|ui|{
+                device_picker(ui, "qwen_device", &mut self.device);
                 egui::ComboBox::from_id_salt("backend").selected_text(match self.backend.as_str(){"cuda_graphs"=>"Ускорение NVIDIA","standard"=>"Обычный режим",_=>"Автовыбор"}).show_ui(ui,|ui|{for (mode,label) in [("auto","Автовыбор"),("cuda_graphs","Ускорение NVIDIA"),("standard","Обычный режим")]{if mode!="cuda_graphs" || cfg!(target_os="windows") {ui.selectable_value(&mut self.backend,mode.into(),label);}}});
             });
-            if ui.button("Проверить модель и сохранить").clicked(){self.post("/settings/model".into(),json!({"directory":self.model_dir,"device":self.device,"backend":self.backend}),"Проверяю файлы модели…",Done::Changed);}
+            if ui.button("Проверить модель и сохранить").clicked(){match resolve_model_directory(&self.model_dir, "Qwen", "config.json") { Ok(dir) => self.model_dir = dir, Err(message) => { self.notice = Some((message, true)); return; } } self.post("/settings/model".into(),json!({"directory":self.model_dir,"device":self.device,"backend":self.backend}),"Проверяю файлы модели…",Done::Changed);}
             if ui.button("Информация об оборудовании").clicked(){self.task("Проверяю оборудование…",Done::Hardware,|api|api.get("/hardware"));}
             if !self.hardware.is_null(){ui.collapsing("Оборудование",|ui|{for gpu in list(&self.hardware["gpus"]){ui.label(format!("{} · {:.1} ГБ видеопамяти",s(&gpu,"name"),gpu["vram_mib"].as_f64().unwrap_or(0.0)/1024.0));}hint(ui,p,s(&self.hardware,"warning"));});}
             ui.collapsing("Скачать модель",|ui|{
@@ -1846,10 +1926,18 @@ impl StudioApp {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() { self.espeech_dir = path.to_string_lossy().into(); }
                 }
             });
+            ui.horizontal(|ui| {
+                device_picker(ui, "espeech_device", &mut self.device);
+            });
+            hint(ui, p, "После сохранения устройство используется для новых задач ESpeech и Qwen.");
             if ui.button("Проверить и включить ESpeech").clicked() {
-                self.post("/settings/espeech".into(),json!({"directory":self.espeech_dir}),"Проверяю ESpeech…",Done::Changed);
+                match resolve_model_directory(&self.espeech_dir, "ESpeech", "espeech_tts_rlv2.pt") {
+                    Ok(dir) => self.espeech_dir = dir,
+                    Err(message) => { self.notice = Some((message, true)); return; }
+                }
+                self.post("/settings/espeech".into(),json!({"directory":self.espeech_dir,"device":self.device}),"Проверяю ESpeech…",Done::Changed);
             }
-            hint(ui, p, "Новые русские задачи используют ESpeech. Для голоса нужна запись до 12 секунд.");
+            hint(ui, p, "Для голоса можно использовать запись до минуты. Для ESpeech рекомендуем 10–12 секунд.");
         });
         ui.add_space(16.0);
         panel(p).show(ui,|ui|{ui.set_width(ui.available_width());title(ui,concat!("Lunatica ",env!("CARGO_PKG_VERSION")),25.0);ui.label("Нативный интерфейс Rust / egui. Озвучка — Python / PyTorch / CUDA.");ui.label("Локальная студия аудиокниг");
@@ -1864,7 +1952,7 @@ impl eframe::App for StudioApp {
         self.events();
         ctx.request_repaint_after(Duration::from_millis(100));
         if let Some(rec) = &self.recording {
-            if rec.started.elapsed() > Duration::from_secs(12)
+            if rec.started.elapsed() >= Duration::from_secs(rec.max_seconds)
                 || !ctx.input(|i| i.viewport().focused.unwrap_or(true))
                 || rec.error.lock().unwrap().is_some()
             {
